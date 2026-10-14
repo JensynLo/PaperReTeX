@@ -192,13 +192,8 @@ def main(argv=None):
             report = evaluate(args.source,args.rebuilt,args.output,args.dpi)
             print(json.dumps({k:v for k,v in report.items() if k!='pages'},ensure_ascii=False)); return 0 if report['passed'] else 1
         if args.command == 'doctor':
-            import fitz,pypdf
-            from .hybrid import runtime
-            runtimes={}
-            for name in ('babeldoc','ocr'):
-                try:runtimes[name+'_python']=str(runtime(name))
-                except ValueError:runtimes[name+'_python']=None
-            print(json.dumps({**runtimes,'python':sys.version.split()[0],'pymupdf':fitz.VersionBind,'pypdf':pypdf.__version__,'xelatex':shutil.which('xelatex'),'codex':shutil.which('codex'),'claude':shutil.which('claude'),'mineru':shutil.which('mineru'),'mineru_kit':shutil.which('mineru-kit')},indent=2)); return 0
+            from .diagnostics import doctor
+            print(json.dumps(doctor(),indent=2)); return 0
         return convert(args)
     except (ValueError,OSError,RuntimeError) as exc:
         print('pdf2tex: '+str(exc),file=sys.stderr); return 2
