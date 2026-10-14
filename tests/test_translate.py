@@ -1,4 +1,4 @@
-from pdf2tex.translate import prose_spans, apply_translations, bilingual
+from paperretex.translate import prose_spans, apply_translations, bilingual
 
 
 def test_only_prose_changes():
@@ -46,7 +46,7 @@ First paragraph.
 def test_resume_uses_validated_cache_and_preserves_input(tmp_path, monkeypatch):
     import json
     from types import SimpleNamespace
-    from pdf2tex.translate import translate_project
+    from paperretex.translate import translate_project
     source=tmp_path/'source';source.mkdir()
     tex=source/'main.tex'; original=r'\documentclass{article}\begin{document}\section{Method}Text $x=1$.\end{document}'
     tex.write_text(original)
@@ -60,8 +60,8 @@ def test_resume_uses_validated_cache_and_preserves_input(tmp_path, monkeypatch):
     def compile(project):
         (project/'main.pdf').write_bytes(b'fake PDF fixture')
         return {'status':'passed'}
-    monkeypatch.setattr('pdf2tex.translate.subprocess.run',run)
-    monkeypatch.setattr('pdf2tex.cli.compile_project',compile)
+    monkeypatch.setattr('paperretex.translate.subprocess.run',run)
+    monkeypatch.setattr('paperretex.cli.compile_project',compile)
     out=tmp_path/'out'
     report=translate_project(tex,out)
     assert report['new_codex_calls']==1
@@ -73,7 +73,7 @@ def test_resume_uses_validated_cache_and_preserves_input(tmp_path, monkeypatch):
 
 
 def test_paragraph_split_keeps_environments_and_groups():
-    from pdf2tex.translate import split_paragraphs
+    from paperretex.translate import split_paragraphs
     parts=split_paragraphs('First.\n\n'+r'\begin{equation}'+'\nx=1\n\n'+r'\end{equation}'+'\n\nLast.')
     assert len(parts)==3
     assert r'\begin{equation}' in parts[1] and r'\end{equation}' in parts[1]

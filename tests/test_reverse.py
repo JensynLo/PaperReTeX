@@ -1,18 +1,18 @@
 import json
 import fitz
-from pdf2tex.cli import main
-from pdf2tex.latex import emit_document
-from pdf2tex.tables import table_tex
+from paperretex.cli import main
+from paperretex.latex import emit_document
+from paperretex.tables import table_tex
 
 
 def test_semantic_never_recovers_source(tmp_path,monkeypatch):
-    import pdf2tex.ocr
-    import pdf2tex.cli
+    import paperretex.ocr
+    import paperretex.cli
     def forbidden(*a,**kw):raise AssertionError('Original source must never be used')
-    monkeypatch.setattr(pdf2tex.cli,'recover',forbidden)
+    monkeypatch.setattr(paperretex.cli,'recover',forbidden)
     def recognize(pdf,out,pages,executable):
         return [{'id':'p1','page':1,'type':'heading','text':'1 Introduction','level':1},{'id':'p2','page':1,'type':'equation','latex':r'x=\frac{1}{2}'}],{'backend':'fixture_ocr','source_lookup':False}
-    monkeypatch.setattr(pdf2tex.ocr,'recognize',recognize)
+    monkeypatch.setattr(paperretex.ocr,'recognize',recognize)
     pdf=tmp_path/'unknown.pdf'
     with fitz.open() as d:
         p=d.new_page();p.insert_text((50,60),'arXiv:2509.24986v1');d.save(pdf)
@@ -42,7 +42,7 @@ def test_numbered_equation_and_normal_heading(tmp_path):
 def test_structured_output_compiles(tmp_path):
     import shutil
     import pytest
-    from pdf2tex.cli import compile_project
+    from paperretex.cli import compile_project
     if not shutil.which('xelatex'):pytest.skip('XeLaTeX required')
     blocks=[{'id':'t','page':1,'type':'heading','text':'A Reconstructed Paper'},
             {'id':'h','page':1,'type':'heading','text':'1 Method'},
@@ -57,7 +57,7 @@ def test_structured_output_compiles(tmp_path):
 
 
 def test_retry_preserves_two_round_ledger(tmp_path,monkeypatch):
-    from pdf2tex.assist import run_round
+    from paperretex.assist import run_round
     from types import SimpleNamespace
     import pytest
     ledger=[{'round':1,'status':'failed'},{'round':2,'status':'completed'}]
@@ -67,7 +67,7 @@ def test_retry_preserves_two_round_ledger(tmp_path,monkeypatch):
         Path=__import__('pathlib').Path
         Path(command[command.index('--output-last-message')+1]).write_text('{}')
         return SimpleNamespace(returncode=0,stdout='reviewed')
-    monkeypatch.setattr('pdf2tex.assist.subprocess.run',fake)
+    monkeypatch.setattr('paperretex.assist.subprocess.run',fake)
     assert run_round(tmp_path,'Review PDF-only output',[],retry_failed_startup=True)['status']=='completed'
     saved=json.loads((tmp_path/'calls.json').read_text())
     assert len(saved)==2 and saved[0]['status']=='failed' and saved[0]['retry']['round']==1
@@ -78,7 +78,7 @@ def test_retry_preserves_two_round_ledger(tmp_path,monkeypatch):
 
 def test_literal_percent_in_math_is_not_comment():
     import pytest
-    from pdf2tex.latex import safe_math
+    from paperretex.latex import safe_math
     assert safe_math(r'50\%')==r'50\%'
     with pytest.raises(ValueError):safe_math('50% hidden')
     with pytest.raises(ValueError):safe_math(r'50\\% hidden')
@@ -87,7 +87,7 @@ def test_literal_percent_in_math_is_not_comment():
 def test_failed_compile_does_not_leave_stale_pdf(tmp_path):
     import shutil
     import pytest
-    from pdf2tex.cli import compile_project
+    from paperretex.cli import compile_project
     if not shutil.which('xelatex'):pytest.skip('XeLaTeX required')
     (tmp_path/'main.pdf').write_bytes(b'stale output')
     (tmp_path/'main.tex').write_text(r'\documentclass{article}\begin{document}\unknowncommand\end{document}')
@@ -96,7 +96,7 @@ def test_failed_compile_does_not_leave_stale_pdf(tmp_path):
 
 
 def test_grouped_equations_keep_distinct_pdf_numbers(tmp_path):
-    from pdf2tex.enrich import enrich
+    from paperretex.enrich import enrich
     pdf=tmp_path/'two-equations.pdf'
     with fitz.open() as d:
         p=d.new_page(width=600,height=800)

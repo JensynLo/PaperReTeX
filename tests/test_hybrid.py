@@ -4,9 +4,9 @@ from pathlib import Path
 import fitz
 import pytest
 from PIL import Image
-from pdf2tex.babeldoc import normalize_ir, text_of, source_blue
-from pdf2tex.formula_review import validate_review, review_formulas
-from pdf2tex.hybrid import apply_formulas, emit_regions, prepare_structure
+from paperretex.babeldoc import normalize_ir, text_of, source_blue
+from paperretex.formula_review import validate_review, review_formulas
+from paperretex.hybrid import apply_formulas, emit_regions, prepare_structure
 
 
 def fixture_ir():
@@ -98,7 +98,7 @@ def test_review_batches_cache_and_missing_ids_fail(tmp_path,monkeypatch):
         result=Path(command[command.index('--output-last-message')+1])
         result.write_text(json.dumps({'formulas':[{'id':r['id'],'status':'confirmed','latex':'x','notes':''} for r in payload]}))
         return type('Result',(),{'returncode':0})()
-    monkeypatch.setattr('pdf2tex.formula_review.run_review',run)
+    monkeypatch.setattr('paperretex.formula_review.run_review',run)
     reviews,stats=review_formulas(formulas,tmp_path,batch_size=2)
     assert len(calls)==2 and stats['reviewed']==3
     reviews,stats=review_formulas(formulas,tmp_path,batch_size=2)
@@ -115,12 +115,12 @@ def test_failed_review_recovers_only_complete_valid_result(tmp_path, monkeypatch
         result=Path(command[command.index('--output-last-message')+1])
         result.write_text(json.dumps({'formulas':[{'id':'a','status':'confirmed','latex':'x','notes':''}]}))
         return type('Result',(),{'returncode':0})()
-    monkeypatch.setattr('pdf2tex.formula_review.run_review',run)
+    monkeypatch.setattr('paperretex.formula_review.run_review',run)
     review_formulas(formulas,tmp_path)
     ledger=next((tmp_path/'formula-review').glob('*/call.json'))
     state=json.loads(ledger.read_text());state.update(status='failed',error='old timeout')
     ledger.write_text(json.dumps(state))
-    monkeypatch.setattr('pdf2tex.formula_review.run_review',lambda *a,**k:pytest.fail('Must reuse result'))
+    monkeypatch.setattr('paperretex.formula_review.run_review',lambda *a,**k:pytest.fail('Must reuse result'))
     _,stats=review_formulas(formulas,tmp_path)
     assert stats['cached_batches']==1 and json.loads(ledger.read_text())['result_recovered']
     state['status']='failed';ledger.write_text(json.dumps(state))
@@ -134,7 +134,7 @@ def test_timeout_stops_native_child_and_reports_progress(tmp_path, capsys):
     import subprocess
     import sys
     import time
-    from pdf2tex.formula_review import run_review
+    from paperretex.formula_review import run_review
     if os.name != 'posix':
         pytest.skip('POSIX process group test')
     # A launcher waiting for a child that would write after the deadline.
@@ -154,7 +154,7 @@ def test_timeout_stops_native_child_and_reports_progress(tmp_path, capsys):
 
 def test_review_runner_success(tmp_path):
     import sys
-    from pdf2tex.formula_review import run_review
+    from paperretex.formula_review import run_review
     with (tmp_path/'codex.log').open('w') as log:
         proc=run_review([sys.executable,'-c','import sys;print(sys.stdin.read())'],
                         input='payload',stdout=log,cwd=tmp_path,timeout=5)
@@ -169,7 +169,7 @@ def test_timeout_retains_ledger_and_requires_explicit_retry(tmp_path, monkeypatc
     def timeout(command, **kwargs):
         kwargs['stdout'].write('ERROR: Reconnecting... waiting for network\n')
         raise subprocess.TimeoutExpired(command, 1)
-    monkeypatch.setattr('pdf2tex.formula_review.run_review',timeout)
+    monkeypatch.setattr('paperretex.formula_review.run_review',timeout)
     with pytest.raises(RuntimeError,match='Network reconnection'):
         review_formulas(formulas,tmp_path,timeout=1)
     ledger=next((tmp_path/'formula-review').glob('*/call.json'))
@@ -245,10 +245,10 @@ def test_column_frames_compile_across_region_inputs(tmp_path):
 
 
 def test_default_routes_to_hybrid_without_source_lookup(monkeypatch,tmp_path):
-    from pdf2tex.cli import main
+    from paperretex.cli import main
     seen=[]
-    monkeypatch.setattr('pdf2tex.hybrid.convert_hybrid',lambda args: seen.append(args.mode) or 0)
-    monkeypatch.setattr('pdf2tex.cli.recover',lambda *a: pytest.fail('Must not fetch sources'))
+    monkeypatch.setattr('paperretex.hybrid.convert_hybrid',lambda args: seen.append(args.mode) or 0)
+    monkeypatch.setattr('paperretex.cli.recover',lambda *a: pytest.fail('Must not fetch sources'))
     assert main(['convert','paper.pdf'])==0
     assert seen==['hybrid']
 
@@ -256,12 +256,12 @@ def test_default_routes_to_hybrid_without_source_lookup(monkeypatch,tmp_path):
 def test_hybrid_stage_order_resume_and_two_round_limit(tmp_path,monkeypatch):
     import hashlib
     import sys
-    from pdf2tex.cli import main
-    from pdf2tex.preflight import assess_layout
+    from paperretex.cli import main
+    from paperretex.preflight import assess_layout
     pdf=tmp_path/'paper.pdf';out=tmp_path/'result';events=[]
     with fitz.open() as d:
         p=d.new_page(width=200,height=200);p.insert_text((30,50),'Let x denote a variable in this example.');d.save(pdf)
-    monkeypatch.setattr('pdf2tex.hybrid.runtime',lambda *a:Path(sys.executable))
+    monkeypatch.setattr('paperretex.hybrid.runtime',lambda *a:Path(sys.executable))
     def worker(python,module,args,log):
         events.append(module)
         if module=='babeldoc_worker':
@@ -271,15 +271,15 @@ def test_hybrid_stage_order_resume_and_two_round_limit(tmp_path,monkeypatch):
             root=Path(args[0]);formulas=json.loads((root/'formulas.json').read_text())
             (root/'formula-ocr.json').write_text(json.dumps([{'id':f['id'],'ocr_latex':'x',
                 'crop_sha256':hashlib.sha256((root/f['crop']).read_bytes()).hexdigest()} for f in formulas]))
-    monkeypatch.setattr('pdf2tex.hybrid.worker',worker)
+    monkeypatch.setattr('paperretex.hybrid.worker',worker)
     def assess(*a,**kw):
         events.append('layout-assessment');return assess_layout(*a,**kw)
-    monkeypatch.setattr('pdf2tex.hybrid.assess_layout',assess)
+    monkeypatch.setattr('paperretex.hybrid.assess_layout',assess)
     def review(formulas,*args,**kwargs):
         events.append('context-review' if kwargs.get('context') else 'review')
         return ({f['id']:{'id':f['id'],'status':'uncertain','latex':'x','notes':'ambiguous'} for f in formulas},
                 {'new_calls':1,'cached_batches':0,'reviewed':len(formulas),'uncertain':len(formulas)})
-    monkeypatch.setattr('pdf2tex.hybrid.review_formulas',review)
+    monkeypatch.setattr('paperretex.hybrid.review_formulas',review)
     argv=['convert',str(pdf),'--layout-review','local','-o',str(out)]
     assert main(argv)==1
     assert events==['babeldoc_worker','layout-assessment','formula_ocr_worker','review','context-review']

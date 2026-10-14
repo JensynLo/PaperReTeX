@@ -1,7 +1,7 @@
 import json
 from types import SimpleNamespace
 
-from pdf2tex.llm_cli import command_for, prompt_with_images, save_response
+from paperretex.llm_cli import command_for, prompt_with_images, save_response
 
 
 def test_provider_commands_and_structured_response(tmp_path):
@@ -26,14 +26,14 @@ def test_provider_commands_and_structured_response(tmp_path):
 
 def test_claude_layout_adapter_uses_structured_output(tmp_path, monkeypatch):
     import fitz
-    from pdf2tex.preflight import assess_layout
+    from paperretex.preflight import assess_layout
 
     pdf = tmp_path/'paper.pdf'
     with fitz.open() as doc:
         page = doc.new_page()
         page.insert_text((50, 70), 'A sample academic paragraph. ' * 10)
         doc.save(pdf)
-    monkeypatch.setattr('pdf2tex.preflight.shutil.which', lambda name: '/fake/claude')
+    monkeypatch.setattr('paperretex.preflight.shutil.which', lambda name: '/fake/claude')
     calls = []
 
     def fake_run(command, **kwargs):
@@ -46,7 +46,7 @@ def test_claude_layout_adapter_uses_structured_output(tmp_path, monkeypatch):
                     'risks': [], 'summary': 'single column'}
         return SimpleNamespace(returncode=0, stdout=json.dumps({'structured_output': response}))
 
-    monkeypatch.setattr('pdf2tex.preflight.subprocess.run', fake_run)
+    monkeypatch.setattr('paperretex.preflight.subprocess.run', fake_run)
     plan = assess_layout(pdf, reviewer='claude', provider='claude', cache_root=tmp_path/'cache')
     assert plan['reviewer'] == 'claude' and plan['family'] == 'single_column'
     assert len(calls) == 1 and calls[0][0] == 'claude'
@@ -56,7 +56,7 @@ def test_claude_layout_adapter_uses_structured_output(tmp_path, monkeypatch):
 
 def test_claude_formula_review_adapts_stdout_and_reuses_cache(tmp_path, monkeypatch):
     from PIL import Image
-    from pdf2tex.formula_review import review_formulas
+    from paperretex.formula_review import review_formulas
 
     Image.new('RGB', (50, 20), 'white').save(tmp_path/'crop.png')
     formulas = [{'id': 'f1', 'page': 1, 'kind': 'inline', 'crop': 'crop.png',
@@ -70,7 +70,7 @@ def test_claude_formula_review_adapts_stdout_and_reuses_cache(tmp_path, monkeypa
         kwargs['stdout'].flush()
         return SimpleNamespace(returncode=0)
 
-    monkeypatch.setattr('pdf2tex.formula_review.run_review', fake_run)
+    monkeypatch.setattr('paperretex.formula_review.run_review', fake_run)
     values, stats = review_formulas(formulas, tmp_path, provider='claude')
     assert values['f1']['latex'] == 'x' and stats['new_calls'] == 1
     assert calls[0][0] == 'claude' and '--json-schema' in calls[0]

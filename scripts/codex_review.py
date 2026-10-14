@@ -4,7 +4,7 @@ import argparse
 import sys
 from pathlib import Path
 sys.path.insert(0,str(Path(__file__).resolve().parents[1]/'src'))
-from pdf2tex.assist import run_round
+from paperretex.assist import run_round
 p=argparse.ArgumentParser()
 p.add_argument('--folder',required=True)
 p.add_argument('--prompt',required=True)

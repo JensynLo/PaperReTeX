@@ -3,9 +3,9 @@ from pathlib import Path
 from types import SimpleNamespace
 import fitz
 import pytest
-from pdf2tex.preflight import assess_layout, local_assessment, sample_pages
-from pdf2tex.profiles import prepare_blocks
-from pdf2tex.latex import emit_document
+from paperretex.preflight import assess_layout, local_assessment, sample_pages
+from paperretex.profiles import prepare_blocks
+from paperretex.latex import emit_document
 
 
 def make_pdf(path, columns=(1,2)):
@@ -30,14 +30,14 @@ def test_local_profiles_detect_transitions(tmp_path):
 def test_codex_preflight_one_cached_call_and_manual_override(tmp_path,monkeypatch):
     pdf=tmp_path/'paper.pdf';make_pdf(pdf,(2,2))
     calls=[]
-    monkeypatch.setattr('pdf2tex.preflight.shutil.which',lambda x:'/fake/codex')
+    monkeypatch.setattr('paperretex.preflight.shutil.which',lambda x:'/fake/codex')
     def run(command,**kw):
         calls.append(command)
         response={'family':'two_column','confidence':.95,'single_column_score':10,'two_column_score':95,'text_source':'native',
                   'pages':[{'page':i,'body_columns':2,'confidence':.95,'full_width_elements':[],'notes':''} for i in (1,2)],'risks':[],'summary':'双栏正文'}
         Path(command[command.index('--output-last-message')+1]).write_text(json.dumps(response))
         return SimpleNamespace(returncode=0,stdout='done')
-    monkeypatch.setattr('pdf2tex.preflight.subprocess.run',run)
+    monkeypatch.setattr('paperretex.preflight.subprocess.run',run)
     first=assess_layout(pdf,cache_root=tmp_path/'cache')
     second=assess_layout(pdf,cache_root=tmp_path/'cache')
     assert len(calls)==1 and not first['cache_hit'] and second['cache_hit']
@@ -50,12 +50,12 @@ def test_codex_preflight_one_cached_call_and_manual_override(tmp_path,monkeypatc
 def test_invalid_response_blocks_repeated_calls(tmp_path,monkeypatch):
     pdf=tmp_path/'paper.pdf';make_pdf(pdf,(1,))
     calls=[]
-    monkeypatch.setattr('pdf2tex.preflight.shutil.which',lambda x:'/fake/codex')
+    monkeypatch.setattr('paperretex.preflight.shutil.which',lambda x:'/fake/codex')
     def run(command,**kwargs):
         calls.append(command)
         Path(command[command.index('--output-last-message')+1]).write_text('{}')
         return SimpleNamespace(returncode=0,stdout='invalid')
-    monkeypatch.setattr('pdf2tex.preflight.subprocess.run',run)
+    monkeypatch.setattr('paperretex.preflight.subprocess.run',run)
     with pytest.raises(RuntimeError,match='stopped before OCR'):assess_layout(pdf,cache_root=tmp_path/'cache')
     with pytest.raises(RuntimeError,match='Previous layout call'):assess_layout(pdf,cache_root=tmp_path/'cache')
     assert len(calls)==1
@@ -80,7 +80,7 @@ def test_tex_keeps_semantic_structure_on_column_change(tmp_path):
 
 
 def test_convert_preflight_runs_before_recognizer(tmp_path,monkeypatch):
-    from pdf2tex.cli import main
+    from paperretex.cli import main
     pdf=tmp_path/'paper.pdf';make_pdf(pdf,(2,))
     events=[]
     def assess(*a,**kwargs):
@@ -89,27 +89,27 @@ def test_convert_preflight_runs_before_recognizer(tmp_path,monkeypatch):
     def recognize(*a,**kwargs):
         events.append('ocr')
         return [{'id':'h','page':1,'type':'heading','text':'1 Method'}],{'backend':'fixture'}
-    monkeypatch.setattr('pdf2tex.preflight.assess_layout',assess)
-    monkeypatch.setattr('pdf2tex.ocr.recognize',recognize)
+    monkeypatch.setattr('paperretex.preflight.assess_layout',assess)
+    monkeypatch.setattr('paperretex.ocr.recognize',recognize)
     assert main(['convert','--mode','semantic',str(pdf),'-o',str(tmp_path/'out')])==0
     assert events==['preflight','ocr']
     assert (tmp_path/'out/layout-plan.json').exists()
 
 
 def test_uncertain_visual_assessment_stops_before_ocr(tmp_path,monkeypatch):
-    from pdf2tex.cli import main
+    from paperretex.cli import main
     pdf=tmp_path/'paper.pdf';make_pdf(pdf,(2,))
     plan=assess_layout(pdf,reviewer='local')
     plan['review']={'confidence':.4,'family':'unknown'}
-    monkeypatch.setattr('pdf2tex.preflight.assess_layout',lambda *a,**kw:plan)
+    monkeypatch.setattr('paperretex.preflight.assess_layout',lambda *a,**kw:plan)
     def forbidden(*a,**kw):raise AssertionError('OCR must not run before layout is confirmed')
-    monkeypatch.setattr('pdf2tex.ocr.recognize',forbidden)
+    monkeypatch.setattr('paperretex.ocr.recognize',forbidden)
     assert main(['convert','--mode','semantic',str(pdf),'-o',str(tmp_path/'out')])==2
     assert not (tmp_path/'out').exists()
 
 
 def test_figure_page_metric_flags_float_drift(tmp_path):
-    from pdf2tex.quality import figure_placement
+    from paperretex.quality import figure_placement
     from PIL import Image
     (tmp_path/'assets').mkdir();asset=tmp_path/'assets/figure.png'
     Image.new('RGB',(30,20),(40,100,200)).save(asset)

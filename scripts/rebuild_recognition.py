@@ -4,22 +4,22 @@ import sys,json
 from pathlib import Path
 from collections import Counter
 sys.path.insert(0,str(Path(__file__).resolve().parents[1]/'src'))
-from pdf2tex.importer import import_content
-from pdf2tex.enrich import enrich
-from pdf2tex.geometry import infer_layout
-from pdf2tex.latex import emit_document
-from pdf2tex.cli import compile_project
+from paperretex.importer import import_content
+from paperretex.enrich import enrich
+from paperretex.geometry import infer_layout
+from paperretex.latex import emit_document
+from paperretex.cli import compile_project
 out=Path(sys.argv[1]);pdf=Path(sys.argv[2])
 raw=next((out/'recognition').rglob('*_content_list.json'))
 blocks,report=import_content(raw,out)
-from pdf2tex.repair import apply_saved
+from paperretex.repair import apply_saved
 apply_saved(blocks,out)
 plan_path=out/'layout-plan.json'
 plan=json.loads(plan_path.read_text()) if plan_path.exists() else None
 if plan:
     import hashlib
     if plan['input_sha256']!=hashlib.sha256(pdf.read_bytes()).hexdigest():raise ValueError('Saved layout plan belongs to a different PDF')
-    from pdf2tex.profiles import prepare_blocks
+    from paperretex.profiles import prepare_blocks
     blocks,ordering_warnings=prepare_blocks(blocks,plan)
 enrich(blocks,pdf)
 old=json.loads((out/'report.json').read_text());old.update(report)

@@ -2,10 +2,10 @@ import json
 from pathlib import Path
 import fitz
 import pytest
-from pdf2tex.cli import main,parse_pages
-from pdf2tex.latex import safe_math,escape,rich_text
-from pdf2tex.importer import import_content
-from pdf2tex.native import order_blocks
+from paperretex.cli import main,parse_pages
+from paperretex.latex import safe_math,escape,rich_text
+from paperretex.importer import import_content
+from paperretex.native import order_blocks
 
 
 def test_escape_and_math():
@@ -62,7 +62,7 @@ def test_importer_and_traversal(tmp_path):
 
 
 def test_codex_two_round_budget(tmp_path, monkeypatch):
-    from pdf2tex.assist import run_round
+    from paperretex.assist import run_round
     (tmp_path/'calls.json').write_text(json.dumps([{'round':1},{'round':2}]))
     with pytest.raises(ValueError,match='budget exhausted'):
         run_round(tmp_path,'Do not call the model',[])
@@ -71,8 +71,8 @@ def test_codex_two_round_budget(tmp_path, monkeypatch):
 def test_layout_retypesets_text_and_keeps_positions(tmp_path):
     import shutil
     import numpy as np
-    from pdf2tex.layout import reconstruct
-    from pdf2tex.cli import compile_project
+    from paperretex.layout import reconstruct
+    from paperretex.cli import compile_project
     sample=Path(__file__).resolve().parents[1]/'samples/2111.14517-EMS.pdf'
     if not sample.exists() or not shutil.which('xelatex'):
         pytest.skip('Local sample PDF and XeLaTeX required for layout integration check')
@@ -95,8 +95,8 @@ def test_layout_retypesets_text_and_keeps_positions(tmp_path):
 def test_rotated_glyph_baselines(tmp_path):
     import shutil
     import numpy as np
-    from pdf2tex.layout import reconstruct
-    from pdf2tex.cli import compile_project
+    from paperretex.layout import reconstruct
+    from paperretex.cli import compile_project
     sample=Path(__file__).resolve().parents[1]/'samples/2607.05568-Kobsik-Primitive-Shape-Abstraction.pdf'
     if not sample.exists() or not shutil.which('xelatex'):
         pytest.skip('Local sample PDF and XeLaTeX required for rotation integration check')

@@ -14,7 +14,7 @@ PREAMBLE = r'''
   \begin{lrbox}{\sourceframebox}\begin{minipage}[t]{#2bp}\sourcebodyfont\vspace{0pt}%
 }{%
   \par\end{minipage}\end{lrbox}%
-  \typeout{PDF2TEX-FRAME \sourceframelabel\space natural=\the\dimexpr\ht\sourceframebox+\dp\sourceframebox\relax limit=\sourceframeheight bp}%
+  \typeout{PAPERRETEX-FRAME \sourceframelabel\space natural=\the\dimexpr\ht\sourceframebox+\dp\sourceframebox\relax limit=\sourceframeheight bp}%
   \vtop to \sourceframeheight bp{\vskip0pt\hbox{%
     \ifdim\dimexpr\ht\sourceframebox+\dp\sourceframebox\relax>\sourceframeheight bp%
       \resizebox*{\sourceframewidth bp}{\sourceframeheight bp}{\usebox{\sourceframebox}}%
@@ -28,7 +28,7 @@ def frame_fit(log):
     """Measure every fitted column; make substantial vertical scaling visible."""
     entries=[]
     for label,natural,limit in re.findall(
-            r'PDF2TEX-FRAME\s+(\S+)\s+natural=([\d.]+)ptlimit=([\d.]+)bp',log):
+            r'PAPERRETEX-FRAME\s+(\S+)\s+natural=([\d.]+)ptlimit=([\d.]+)bp',log):
         ratio=float(natural)/(float(limit)*72.27/72) if float(limit)>0 else 0
         entries.append({'frame':label,'natural_to_limit':round(ratio,4)})
     return {'frames':len(entries),

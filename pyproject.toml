@@ -13,18 +13,17 @@ dependencies = ["PyMuPDF>=1.26.5", "pypdf>=5", "fonttools>=4.50", "numpy>=1.23",
 dev = ["pytest>=8"]
 
 [project.scripts]
-paperretex = "pdf2tex.cli:main"
-pdf2tex = "pdf2tex.cli:main"
+paperretex = "paperretex.cli:main"
 
 [tool.setuptools]
 package-dir = {"" = "src"}
 
 [tool.setuptools.packages.find]
 where = ["src"]
-include = ["pdf2tex*"]
+include = ["paperretex*"]
 
 [tool.setuptools.package-data]
-pdf2tex = ["data/*.lock"]
+paperretex = ["data/*.lock"]
 
 [tool.pytest.ini_options]
 pythonpath = ["src"]

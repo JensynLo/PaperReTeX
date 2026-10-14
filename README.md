@@ -22,7 +22,7 @@ paperretex install-runtimes
 paperretex doctor
 ```
 
-BabelDOC 运行环境使用 Python 3.12，公式 OCR 环境使用 Python 3.11。`install-runtimes` 将它们放入 `~/.cache/paperretex/`（可用 `XDG_CACHE_HOME` 改变根目录）。首次使用可能下载模型。可通过 `--babeldoc-python` 与 `--ocr-python` 指定现有环境。`pdf2tex` 命令保留为 `paperretex` 的兼容别名。
+BabelDOC 运行环境使用 Python 3.12，公式 OCR 环境使用 Python 3.11。`install-runtimes` 将它们放入 `~/.cache/paperretex/`（可用 `XDG_CACHE_HOME` 改变根目录）。首次使用可能下载模型。可通过 `--babeldoc-python` 与 `--ocr-python` 指定现有环境。
 
 ## 使用
 
@@ -49,8 +49,8 @@ paperretex translate output/paper/main-flat.tex --llm-provider claude -o output/
 
 | 路径 | 用途 |
 | --- | --- |
-| `src/pdf2tex/` | CLI、布局、OCR、公式复核、LaTeX、翻译与评测模块 |
-| `src/pdf2tex/llm_cli.py` | Codex／Claude 命令和结构化响应适配 |
+| `src/paperretex/` | CLI、布局、OCR、公式复核、LaTeX、翻译与评测模块 |
+| `src/paperretex/llm_cli.py` | Codex／Claude 命令和结构化响应适配 |
 | `scripts/` | 独立模型环境安装、样例评测与辅助工具 |
 | `tests/` | 不调用真实模型的自动测试 |
 | `samples/` | 本地参考 PDF，默认不加入 Git |
@@ -60,7 +60,7 @@ paperretex translate output/paper/main-flat.tex --llm-provider claude -o output/
 
 ```sh
 python -m pytest -q
-python -m compileall -q src/pdf2tex scripts
+python -m compileall -q src/paperretex scripts
 ```
 
 ## 当前限制

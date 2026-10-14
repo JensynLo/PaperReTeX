@@ -8,7 +8,7 @@ import sys
 from pathlib import Path
 ROOT=Path(__file__).resolve().parents[1]
 sys.path.insert(0,str(ROOT/'src'))
-from pdf2tex.evaluate import evaluate
+from paperretex.evaluate import evaluate
 SAMPLES={'EMS':'2111.14517-EMS.pdf','Kobsik':'2607.05568-Kobsik-Primitive-Shape-Abstraction.pdf','Light-SQ':'2509.24986-Light-SQ.pdf','ResFit':'2512.09201-ResFit-SuperFrusta.pdf'}
 
 def main():
@@ -17,7 +17,7 @@ def main():
     rows=[]
     for name,filename in SAMPLES.items():
         source=ROOT/'samples'/filename;dest=root/name
-        run=subprocess.run([sys.executable,'-m','pdf2tex','convert','--mode','layout',str(source),'-o',str(dest),'--compile'],cwd=ROOT)
+        run=subprocess.run([sys.executable,'-m','paperretex','convert','--mode','layout',str(source),'-o',str(dest),'--compile'],cwd=ROOT)
         if run.returncode: raise SystemExit('Conversion failed: '+name)
         result=evaluate(source,dest/'main.pdf',root/'evaluation'/name)
         conversion=json.loads((dest/'report.json').read_text());counts=conversion['counts']

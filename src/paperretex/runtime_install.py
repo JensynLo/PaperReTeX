@@ -21,7 +21,7 @@ def install_runtimes():
         python = folder/('Scripts/python.exe' if os.name=='nt' else 'bin/python')
         if not python.is_file():
             subprocess.run([uv, 'venv', '--python', version, str(folder)], check=True)
-        resource = files('pdf2tex').joinpath('data', name+'-requirements.lock')
+        resource = files('paperretex').joinpath('data', name+'-requirements.lock')
         with as_file(resource) as requirements:
             subprocess.run([uv, 'pip', 'install', '--python', str(python),
                             '-r', str(requirements)], check=True)

@@ -57,7 +57,7 @@ def convert(args):
     if out.exists() and any(out.iterdir()): raise ValueError('Output directory is not empty; choose a new --output to protect edits.')
     out.parent.mkdir(parents=True,exist_ok=True)
     start = time.monotonic()
-    with tempfile.TemporaryDirectory(prefix='.pdf2tex-',dir=out.parent) as tmp:
+    with tempfile.TemporaryDirectory(prefix='.paperretex-',dir=out.parent) as tmp:
         stage = Path(tmp); (stage/'assets').mkdir()
         source_mode = args.mode == 'source' and not args.content_list
         plan = None
@@ -196,4 +196,4 @@ def main(argv=None):
             print(json.dumps(doctor(),indent=2)); return 0
         return convert(args)
     except (ValueError,OSError,RuntimeError) as exc:
-        print('pdf2tex: '+str(exc),file=sys.stderr); return 2
+        print('paperretex: '+str(exc),file=sys.stderr); return 2

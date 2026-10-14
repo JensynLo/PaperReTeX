@@ -3,8 +3,8 @@ import json
 import tarfile
 import fitz
 import pytest
-from pdf2tex.source import safe_extract,entrypoints,source_structure,detect_id
-from pdf2tex.cli import main
+from paperretex.source import safe_extract,entrypoints,source_structure,detect_id
+from paperretex.cli import main
 
 
 def make_archive(name,content):
@@ -45,7 +45,7 @@ def test_source_is_explicit_and_not_positioned(tmp_path):
 
 def test_compile_semantic_references_to_convergence(tmp_path):
     import shutil
-    from pdf2tex.source import compile_source
+    from paperretex.source import compile_source
     if not shutil.which('pdflatex'):pytest.skip('pdfLaTeX required')
     (tmp_path/'paper.tex').write_text(r'''\documentclass{article}
 \usepackage{amsmath}

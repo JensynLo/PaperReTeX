@@ -14,7 +14,7 @@ ROOT=Path(__file__).resolve().parents[1]
 sys.path.insert(0,str(ROOT/'src'))
 SAMPLES={'EMS':'2111.14517-EMS.pdf','Kobsik':'2607.05568-Kobsik-Primitive-Shape-Abstraction.pdf','Light-SQ':'2509.24986-Light-SQ.pdf','ResFit':'2512.09201-ResFit-SuperFrusta.pdf'}
 
-from pdf2tex.quality import assess
+from paperretex.quality import assess
 
 def main():
     p=argparse.ArgumentParser();p.add_argument('--output',default='output/reverse');p.add_argument('--only',choices=list(SAMPLES));a=p.parse_args()
@@ -23,7 +23,7 @@ def main():
         if a.only and a.only!=name:continue
         dest=root/name;source=ROOT/'samples'/file
         if not (dest/'report.json').exists():
-            proc=subprocess.run([sys.executable,'-m','pdf2tex','convert',str(source),'-o',str(dest),'--compile'],cwd=ROOT)
+            proc=subprocess.run([sys.executable,'-m','paperretex','convert',str(source),'-o',str(dest),'--compile'],cwd=ROOT)
             if not (dest/'report.json').exists():
                 rows.append(dict(name=name,error='conversion failed',returncode=proc.returncode));continue
         result=assess(source,dest);rows.append(dict(name=name,**result));print(json.dumps(rows[-1],ensure_ascii=False),flush=True)
