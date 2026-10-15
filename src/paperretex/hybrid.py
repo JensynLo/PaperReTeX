@@ -18,6 +18,8 @@ from .profiles import prepare_blocks
 from .config import cache_root
 
 VERSION = "babeldoc-hybrid-v1"
+MONOSPACE = re.compile(r"Mono|Courier|CMTT|SFTT|Consol|Menlo")
+MARKER = re.compile(r"[*∗†‡§¶\d]{1,3}")
 
 
 def save(path, value):
@@ -65,7 +67,7 @@ def worker(python, module, arguments, logfile, timeout=1800):
 
 
 def apply_formulas(regions, formulas, verdicts):
-    if set(verdicts) != {f["id"] for f in formulas}:
+    if set(verdicts) != {f["id"] for f in formulas if not f.get("skipped")}:
         raise ValueError("Assembly refused: formula review coverage is incomplete.")
     mapping = {f["id"]: f for f in formulas}
     for region in regions:
@@ -73,8 +75,34 @@ def apply_formulas(regions, formulas, verdicts):
         tex_parts = []
         math_parts = []
         uncertain = []
+        line_starts = []
         for segment in region["segments"]:
+            if segment.get("line_break"):
+                line_starts.append(len(tex_parts) + 1)
             fid = segment.get("formula_id")
+            if fid and mapping[fid].get("skipped"):
+                # Hidden regions are never emitted; keep their audit text only.
+                text_parts.append(mapping[fid].get("native_text", ""))
+                tex_parts.append(escape(mapping[fid].get("native_text", "")))
+                continue
+            if fid and verdicts[fid]["status"] == "text":
+                mapping[fid]["review"] = verdicts[fid]
+                text = mapping[fid].get("native_text", "")
+                value = escape(text)
+                size = mapping[fid].get("font_size")
+                if MARKER.fullmatch(text.strip()) and (
+                    mapping[fid].get("script_position") == "super"
+                    or (size and size < 0.8 * (region.get("font_size") or 10))
+                ):
+                    # Footnote markers are set smaller and raised in the source.
+                    value = r"\textsuperscript{" + escape(text.strip()) + "}"
+                if mapping[fid].get("source_blue") and re.fullmatch(
+                    r"\s*\[[0-9,\s–-]+\]\s*", text
+                ):
+                    value = r"{\color{sourceblue}" + value + "}"
+                text_parts.append(text)
+                tex_parts.append(value)
+                continue
             if fid:
                 row = verdicts[fid]
                 if row["status"] == "uncertain":
@@ -130,7 +158,19 @@ def apply_formulas(regions, formulas, verdicts):
                 math_parts.append(value)
             else:
                 text = segment.get("text", "")
+                # Mirror of the leading-comma rule: a reviewed "512." followed by
+                # the native "." would print the period twice.
+                if (
+                    math_parts
+                    and tex_parts
+                    and tex_parts[-1].rstrip().endswith("$")
+                    and text[:1] in (".", ",", ";", ":")
+                    and math_parts[-1].rstrip().endswith(text[:1])
+                ):
+                    text = text[1:]
                 value = escape(text)
+                if text.strip() and MONOSPACE.search(segment.get("font_name", "")):
+                    value = r"\texttt{" + value + "}"
                 if segment.get("italic"):
                     value = r"\textit{" + value + "}"
                 if segment.get("bold"):
@@ -146,6 +186,14 @@ def apply_formulas(regions, formulas, verdicts):
                     )
         region["text"] = "".join(text_parts).strip()
         region["tex"] = "".join(tex_parts).strip()
+        bounds = [0] + line_starts + [len(tex_parts)]
+        region["tex_lines"] = [
+            line
+            for line in (
+                "".join(tex_parts[a:b]).strip() for a, b in zip(bounds, bounds[1:])
+            )
+            if line
+        ]
         region["review"] = bool(uncertain)
         region["unresolved_formulas"] = uncertain
         if region["type"] == "equation":
@@ -169,35 +217,111 @@ def apply_formulas(regions, formulas, verdicts):
     return regions
 
 
-def prepare_structure(regions, geometry):
-    """Associate captions and frontmatter using layout labels and source geometry."""
-    assets_by_page = defaultdict(list)
-    for region in regions:
-        if not region.get("asset"):
-            continue
-        x0, y0, x1, y1 = region["source_bbox"]
-        area = (x1 - x0) * (y1 - y0)
-        for other in assets_by_page[region["page"]]:
-            if region["type"] != other["type"]:
-                continue
-            a, b, c, d = other["source_bbox"]
-            overlap = max(0, min(x1, c) - max(x0, a)) * max(0, min(y1, d) - max(y0, b))
-            union = area + (c - a) * (d - b) - overlap
-            if union and overlap / union > 0.9:
-                region.update(
-                    merged_into=other["id"], representation="duplicate-layout-detection"
-                )
-                break
-        if not region.get("merged_into"):
-            assets_by_page[region["page"]].append(region)
+def area(box):
+    return max(0, box[2] - box[0]) * max(0, box[3] - box[1])
+
+
+def overlap(a, b):
+    return max(0, min(a[2], b[2]) - max(a[0], b[0])) * max(
+        0, min(a[3], b[3]) - max(a[1], b[1])
+    )
+
+
+def hide_unemitted(regions, formulas):
+    """Mark regions that never reach the TeX before any OCR or review is spent.
+
+    Vector assets already contain their labels and table cells, and BabelDOC
+    also exposes those glyphs as fallback paragraphs; page decorations are
+    metadata. Their formulas are recorded as skipped instead of reviewed.
+    """
+    # BabelDOC flags some footnote markers as corner marks; others are plain
+    # symbol formulas at the start of the note.
+    marker = {
+        f["id"]
+        for f in formulas
+        if f.get("corner_mark")
+        or re.fullmatch(r"[*∗†‡§¶\d]{1,3}", f.get("native_text", "").strip())
+    }
     for region in regions:
         label = region["layout_label"]
         if label in ("table_footnote", "figure_footnote") and re.match(
             r"^(?:Table|Figure|Fig\.)\s*\d+[.:]", region["text"]
         ):
-            label = region["layout_label"] = (
+            region["layout_label"] = (
                 "table_caption" if label == "table_footnote" else "figure_caption"
             )
+        # Layout models often label bottom-of-page footnotes as "abandon".
+        first = next(
+            (
+                s
+                for s in region.get("segments", [])
+                if s.get("formula_id") or s.get("text", "").strip()
+            ),
+            {},
+        )
+        if (
+            label == "abandon"
+            and first.get("formula_id") in marker
+            and len(region["text"]) > 12
+        ):
+            region.update(type="footnote", layout_label="footnote")
+    # Largest first, so a panel inside a whole-figure detection is the duplicate.
+    assets = sorted(
+        (r for r in regions if r.get("asset")),
+        key=lambda r: area(r["source_bbox"]),
+        reverse=True,
+    )
+    kept = defaultdict(list)
+    for region in assets:
+        box = region["source_bbox"]
+        for other in kept[region["page"]]:
+            if (
+                region["type"] == other["type"]
+                and area(box)
+                and (overlap(box, other["source_bbox"]) / area(box) > 0.9)
+            ):
+                region.update(
+                    merged_into=other["id"], representation="duplicate-layout-detection"
+                )
+                break
+        else:
+            kept[region["page"]].append(region)
+    for region in regions:
+        label = region["layout_label"]
+        if not region.get("asset") and "caption" not in label:
+            box = region["source_bbox"]
+            for asset in kept[region["page"]]:
+                if area(box) and overlap(box, asset["source_bbox"]) / area(box) > 0.9:
+                    region["merged_into"] = asset["id"]
+                    region["representation"] = "text-in-vector-asset"
+                    break
+        # Marginal page numbers/headers are metadata, not body paragraphs.
+        if label in (
+            "page_number",
+            "header",
+            "footer",
+            "page_header",
+            "page_footer",
+            "abandon",
+        ) and not region.get("merged_into"):
+            region["merged_into"] = "page-decoration"
+    hidden = {r["id"]: r["merged_into"] for r in regions if r.get("merged_into")}
+    for f in formulas:
+        if f["region_id"] in hidden:
+            f["skipped"] = "region-not-emitted: " + hidden[f["region_id"]]
+        else:
+            f.pop("skipped", None)
+    return regions
+
+
+def prepare_structure(regions, geometry):
+    """Associate captions and frontmatter using layout labels and source geometry."""
+    assets_by_page = defaultdict(list)
+    for region in regions:
+        if region.get("asset") and not region.get("merged_into"):
+            assets_by_page[region["page"]].append(region)
+    for region in regions:
+        label = region["layout_label"]
         if (
             "caption" in label
             and region.get("bold")
@@ -206,21 +330,6 @@ def prepare_structure(regions, geometry):
         ):
             region.update(type="heading", layout_label="title")
             label = "title"
-        # Vector assets already contain their labels and table cells. BabelDOC
-        # also exposes these glyphs as fallback paragraphs; emitting both doubles
-        # the content and can add entire pages of spurious body text.
-        if not region.get("asset") and "caption" not in label:
-            x0, y0, x1, y1 = region["source_bbox"]
-            area = max(0, x1 - x0) * max(0, y1 - y0)
-            for asset in assets_by_page[region["page"]]:
-                a, b, c, d = asset["source_bbox"]
-                overlap = max(0, min(x1, c) - max(x0, a)) * max(
-                    0, min(y1, d) - max(y0, b)
-                )
-                if area and overlap / area > 0.9:
-                    region["merged_into"] = asset["id"]
-                    region["representation"] = "text-in-vector-asset"
-                    break
         if "caption" in label:
             candidates = [
                 r
@@ -251,16 +360,6 @@ def prepare_structure(regions, geometry):
                     ).strip()
                     target.setdefault("caption_regions", []).append(region)
                     region["merged_into"] = target["id"]
-        # Marginal page numbers/headers are metadata, not body paragraphs.
-        if label in (
-            "page_number",
-            "header",
-            "footer",
-            "page_header",
-            "page_footer",
-            "abandon",
-        ):
-            region["merged_into"] = "page-decoration"
     first = next((r for r in regions if not r.get("merged_into")), None)
     if first and first["type"] == "heading" and not re.match(r"^\d", first["text"]):
         for r in regions[regions.index(first) + 1 :]:
@@ -271,9 +370,16 @@ def prepare_structure(regions, geometry):
             if r.get("asset") and r.get("wide"):
                 r["role"] = "frontmatter_figure"
                 continue
-            if r["type"] != "paragraph":
-                break
             if r["text"].lower().startswith("abstract") or len(r["text"]) > 650:
+                break
+            if (
+                r["type"] == "heading"
+                and len(r["text"]) < 120
+                and not re.match(r"^\d", r["text"])
+            ):
+                # Layout models label bold author names as titles.
+                r["type"] = "paragraph"
+            if r["type"] != "paragraph":
                 break
             r["role"] = "frontmatter"
             r["alignment"] = "center"
@@ -559,6 +665,8 @@ def convert_hybrid(args):
             json.loads(irpath.read_text()), pdf, root, selected
         )
         regions, order_warnings = prepare_blocks(regions, plan)
+        hide_unemitted(regions, formulas)
+        active = [f for f in formulas if not f.get("skipped")]
         render_overlays(pdf, regions, formulas, root)
         save(root / "regions.json", regions)
         save(root / "formulas.json", formulas)
@@ -571,12 +679,12 @@ def convert_hybrid(args):
         )
         hashes = {
             f["id"]: hashlib.sha256((root / f["crop"]).read_bytes()).hexdigest()
-            for f in formulas
+            for f in active
         }
         valid_cache = set(old) == set(hashes) and all(
             old[k].get("crop_sha256") == v for k, v in hashes.items()
         )
-        if not formulas:
+        if not active:
             save(ocrpath, [])
         elif not valid_cache or not ocrpath.exists():
             worker(
@@ -587,14 +695,14 @@ def convert_hybrid(args):
             )
         rows = json.loads(ocrpath.read_text())
         ocr = {r["id"]: r for r in rows}
-        if len(rows) != len(formulas) or set(ocr) != {f["id"] for f in formulas}:
+        if len(rows) != len(active) or set(ocr) != {f["id"] for f in active}:
             raise ValueError("OCR result IDs do not match all formula crops.")
-        for f in formulas:
+        for f in active:
             f.update(ocr[f["id"]])
         save(root / "formulas.json", formulas)
         stage(provider + "-formula-review")
         verdicts, review = review_formulas(
-            formulas,
+            active,
             root,
             command,
             args.formula_batch_size,
@@ -603,7 +711,7 @@ def convert_hybrid(args):
             provider=provider,
             codex_effort=args.codex_effort,
         )
-        uncertain = [f for f in formulas if verdicts[f["id"]]["status"] == "uncertain"]
+        uncertain = [f for f in active if verdicts[f["id"]]["status"] == "uncertain"]
         review["rounds"] = 1
         if uncertain and args.formula_review_rounds == 2:
             stage(provider + "-formula-context-review")
@@ -631,6 +739,7 @@ def convert_hybrid(args):
                 new_calls=review["new_calls"] + stats["new_calls"],
                 cached_batches=review["cached_batches"] + stats["cached_batches"],
                 uncertain=sum(r["status"] == "uncertain" for r in verdicts.values()),
+                text=sum(r["status"] == "text" for r in verdicts.values()),
             )
         save(root / "formula-verdicts.json", list(verdicts.values()))
         stage("region-tex-and-assembly")
@@ -660,6 +769,7 @@ def convert_hybrid(args):
             "formula_ocr_model": "UniMERNet-small (MinerU 2.7.1)",
             "formula_review": review,
             "detected_formulas": len(formulas),
+            "skipped_formulas": len(formulas) - len(active),
             "inline_formulas": sum(f["kind"] == "inline" for f in formulas),
             "display_formulas": sum(f["kind"] == "display" for f in formulas),
             "counts": dict(Counter(r["type"] for r in regions)),

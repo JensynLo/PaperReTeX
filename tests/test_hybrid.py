@@ -6,7 +6,13 @@ import pytest
 from PIL import Image
 from paperretex.babeldoc import normalize_ir, text_of, source_blue
 from paperretex.formula_review import validate_review, review_formulas
-from paperretex.hybrid import apply_formulas, emit_regions, prepare_structure
+from paperretex.hybrid import (
+    apply_formulas,
+    emit_regions,
+    hide_unemitted,
+    prepare_structure,
+)
+from paperretex.latex import safe_math
 
 
 def fixture_ir():
@@ -406,6 +412,7 @@ def test_vector_assets_and_mislabeled_caption_keep_one_copy():
         ),
     ]
     regions[-1]["bold"] = True
+    hide_unemitted(regions, [])
     prepare_structure(regions, {})
     assert regions[1]["merged_into"] == regions[0]["id"]
     assert regions[2]["merged_into"] == regions[0]["id"]
@@ -590,3 +597,175 @@ def test_hybrid_stage_order_resume_and_two_round_limit(tmp_path, monkeypatch):
     assert "error" not in json.loads((out / "pipeline.json").read_text())
     assert events == ["layout-assessment", "review", "context-review"]
     assert main(argv + ["--resume", "--layout-profile", "two_column"]) == 2
+
+
+def test_json_escape_loss_is_repaired_and_never_emitted():
+    expected = [{"id": "a"}, {"id": "b"}, {"id": "c"}]
+    rows = [
+        {"id": "a", "status": "corrected", "latex": "d_{\text{model}}", "notes": ""},
+        {"id": "b", "status": "confirmed", "latex": "\frac{1}{2}", "notes": ""},
+        {"id": "c", "status": "confirmed", "latex": "\nabla f", "notes": ""},
+    ]
+    fixed = validate_review({"formulas": rows}, expected)
+    assert [r["latex"] for r in fixed] == [
+        r"d_{\text{model}}",
+        r"\frac{1}{2}",
+        r"\nabla f",
+    ]
+    assert all(r["escape_repaired"] for r in fixed)
+    with pytest.raises(ValueError):
+        safe_math("d_{\text{model}}")
+
+
+def test_line_break_before_letters_is_not_a_command():
+    value = r"\begin{aligned}PE&=\sin x\\PE&=\cos x\end{aligned}"
+    assert safe_math(value) == value
+    with pytest.raises(ValueError):
+        safe_math(r"x\PE")
+
+
+def test_non_math_detection_renders_native_text():
+    regions = [
+        {
+            "id": "r",
+            "type": "paragraph",
+            "segments": [{"formula_id": "a"}, {"text": " In encoder"}],
+        }
+    ]
+    formulas = [{"id": "a", "native_text": "• "}]
+    apply_formulas(
+        regions,
+        formulas,
+        {"a": {"id": "a", "status": "text", "latex": "", "notes": "bullet"}},
+    )
+    assert "[?]" not in regions[0]["tex"] and not regions[0]["review"]
+    assert regions[0]["text"] == "•  In encoder"
+
+
+def test_reviewed_trailing_period_is_not_duplicated():
+    regions = [
+        {
+            "id": "r",
+            "type": "paragraph",
+            "segments": [{"text": "of "}, {"formula_id": "a"}, {"text": ". Next"}],
+        }
+    ]
+    formulas = [{"id": "a", "native_text": "d = 512"}]
+    apply_formulas(
+        regions,
+        formulas,
+        {"a": {"id": "a", "status": "corrected", "latex": "d=512.", "notes": ""}},
+    )
+    assert regions[0]["tex"] == "of $d=512.$ Next"
+
+
+def test_hidden_regions_skip_review_and_recover_footnotes():
+    def r(rid, typ, label, box, segments=(), asset=None):
+        row = {
+            "id": rid,
+            "page": 1,
+            "type": typ,
+            "layout_label": label,
+            "source_bbox": box,
+            "text": "".join(s.get("text", "") for s in segments) or "x" * 20,
+            "segments": list(segments),
+        }
+        if asset:
+            row["asset"] = asset
+        return row
+
+    regions = [
+        r("p001-figure001", "figure_crop", "figure", [100, 60, 470, 250], asset="a"),
+        r("p001-figure002", "figure_crop", "figure", [340, 70, 470, 240], asset="b"),
+        r(
+            "p001-r0001",
+            "paragraph",
+            "fallback_line",
+            [120, 80, 140, 200],
+            [{"formula_id": "f1"}],
+        ),
+        r(
+            "p001-r0002",
+            "paragraph",
+            "abandon",
+            [100, 700, 500, 720],
+            [{"formula_id": "f2"}, {"text": "Work performed while at Google."}],
+        ),
+        r(
+            "p001-r0003",
+            "paragraph",
+            "abandon",
+            [20, 200, 40, 600],
+            [{"formula_id": "f3"}],
+        ),
+    ]
+    formulas = [
+        {"id": "f1", "region_id": "p001-r0001"},
+        {"id": "f2", "region_id": "p001-r0002", "native_text": "†"},
+        {"id": "f3", "region_id": "p001-r0003"},
+    ]
+    hide_unemitted(regions, formulas)
+    assert regions[1]["merged_into"] == "p001-figure001"
+    assert regions[2]["representation"] == "text-in-vector-asset"
+    assert regions[3]["type"] == "footnote" and not regions[3].get("merged_into")
+    assert regions[4]["merged_into"] == "page-decoration"
+    assert [f["id"] for f in formulas if f.get("skipped")] == ["f1", "f3"]
+    apply_formulas(
+        regions,
+        formulas,
+        {
+            "f2": {
+                "id": "f2",
+                "status": "confirmed",
+                "latex": "{}^{\\dagger}",
+                "notes": "",
+            }
+        },
+    )
+
+
+def test_author_blocks_side_by_side_become_one_row():
+    from paperretex.latex import author_row, author_rows
+
+    def front(rid, box, lines):
+        return {"id": rid, "role": "frontmatter", "bbox": box, "tex_lines": lines}
+
+    fronts = [
+        front("a", [180, 290, 360, 340], [r"\textbf{Ashish}", "Google Brain"]),
+        front("c", [560, 290, 760, 340], [r"\textbf{Aidan}", "Toronto"]),
+        front("b", [180, 290, 360, 305], [r"\textbf{Llion}"]),
+        front("d", [800, 290, 900, 340], ["Lukasz"]),
+        front("e", [400, 450, 600, 480], ["Illia"]),
+    ]
+    rows = author_rows(fronts)
+    assert rows["a"] is rows["c"] is rows["d"] and rows["a"][0]["id"] == "a"
+    assert "e" not in rows
+    tex = author_row(rows["a"], {"paper_width": 612, "left": 108, "font_size": 10})
+    assert tex.count(r"\begin{minipage}") == 3  # a and b overlap: one column
+    assert tex.index("Ashish") < tex.index("Aidan") < tex.index("Lukasz")
+
+
+def test_small_text_markers_are_superscripts_and_lines_are_kept():
+    regions = [
+        {
+            "id": "r",
+            "type": "paragraph",
+            "font_size": 10,
+            "segments": [
+                {"text": "gradients"},
+                {"formula_id": "a"},
+                {"text": " ", "line_break": True},
+                {"text": "x@y.com", "font_name": "XEXHSJ+SFTT1000"},
+            ],
+        }
+    ]
+    formulas = [{"id": "a", "native_text": "4", "font_size": 7}]
+    apply_formulas(
+        regions,
+        formulas,
+        {"a": {"id": "a", "status": "text", "latex": "", "notes": "footnote"}},
+    )
+    assert regions[0]["tex_lines"] == [
+        r"gradients\textsuperscript{4}",
+        r"\texttt{x@y.com}",
+    ]

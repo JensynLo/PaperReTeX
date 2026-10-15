@@ -170,7 +170,21 @@ def normalize_ir(ir, pdf, root, selected=None):
                             comp_chars[0].get("char_unicode") or ""
                         )
                         if len(joined) > len(raw):
-                            region["segments"].append({"text": " "})
+                            old = previous_chars[-1].get("box")
+                            new = comp_chars[0].get("box")
+                            size = (comp_chars[0].get("pdf_style") or {}).get(
+                                "font_size"
+                            ) or 10
+                            region["segments"].append({
+                                "text": " ",
+                                # Same test as text_of: the source starts a new line.
+                                "line_break": bool(
+                                    old
+                                    and new
+                                    and abs(new["y"] - old["y"]) > size * 0.65
+                                    and new["x"] < old["x2"]
+                                ),
+                            })
                     if comp_chars:
                         previous_chars = comp_chars
                     formula = comp.get("pdf_formula")
@@ -197,6 +211,9 @@ def normalize_ir(ir, pdf, root, selected=None):
                             "bbox": list(fbox),
                             "crop": crop,
                             "native_text": text_of(formula.get("pdf_character", [])),
+                            "font_size": style_of(
+                                formula.get("pdf_character", []), fonts
+                            )["font_size"],
                             "source_blue": source_blue(
                                 formula.get("pdf_character", [])
                             ),

@@ -20,7 +20,11 @@ def main():
     from mineru.utils.models_download_utils import auto_download_and_get_model_root_path
 
     root = Path(sys.argv[1]).resolve()
-    formulas = json.loads((root / "formulas.json").read_text())
+    formulas = [
+        f
+        for f in json.loads((root / "formulas.json").read_text())
+        if not f.get("skipped")
+    ]
     if not formulas:
         (root / "formula-ocr.json").write_text("[]")
         return

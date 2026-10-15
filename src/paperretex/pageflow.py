@@ -50,7 +50,8 @@ def _unwrap(value):
     value = re.sub(r"\\twocolumn\[\{(.*?)\}\]\n", r"\1\n", value, flags=re.S)
     value = value.replace(r"\begin{strip}", "").replace(r"\end{strip}", "")
     # The following band supplies the source gap outside the spanning frame.
-    value = re.sub(r"\\vspace\{[\d.]+bp\}\s*$", "", value)
+    # Keep the final newline: the next region's audit marker must start a line.
+    value = re.sub(r"\\vspace\{[\d.]+bp\}\s*$", "\n", value)
     return value
 
 

@@ -251,6 +251,30 @@ def split_paragraphs(body):
     return [body[a:b] for a, b in zip(cuts, cuts[1:]) if body[a:b].strip()]
 
 
+REGION_MARKER = r"(?m)^% p\d{3}-(?:r\d{4}|figure\d{3}|table\d{3}) / [^\n]+\n"
+
+
+def unframe(body):
+    """Drop hybrid page/column frames so paragraphs can pair across columns.
+
+    The frames hold a whole source page at its original height; inside paracol
+    each one fills a column and original/translation land on alternate pages.
+    """
+    body = re.sub(r"\\topskip=0pt\\baselineskip=0pt[^\n]*\n", "", body)
+    body = re.sub(r"\\par\\noindent\\hbox to \\textwidth\{%\n", "", body)
+    body = body.replace("\\end{sourceframe}%\n}\\par\n", "\n")
+    body = body.replace("\\end{sourceframe}%\n\\par\n", "\n")
+    body = body.replace("\\end{sourceframe}%\n", "\n").replace("\\hfil%\n", "")
+    body = re.sub(
+        r"(?:\\par\\noindent)?\\begin\{sourceframe\}\{[^}]*\}\{[^}]*\}\{[^}]*\}%\n",
+        "",
+        body,
+    )
+    body = re.sub(r"(?m)^\\vspace\*\{[\d.]+bp\}\n", "", body)
+    body = re.sub(r"(?m)^\\clearpage\n", "", body)
+    return body
+
+
 def bilingual(source, translated):
     pre = translated.split(r"\begin{document}", 1)[0]
     pre = re.sub(r"\\documentclass\[[^]]*\]", r"\\documentclass[10pt]", pre)
@@ -263,6 +287,10 @@ def bilingual(source, translated):
 
     def parts(tex):
         body = tex.split(r"\begin{document}", 1)[1].split(r"\end{document}", 1)[0]
+        if "\\begin{sourceframe}" in body:
+            body = unframe(body)
+            if re.search(REGION_MARKER, body):
+                return re.split(REGION_MARKER, body)
         marker = r"(?m)^% (?:p\d+-b\d+ / .*|Source PDF page \d+)\n"
         if re.search(marker, body):
             return re.split(marker, body)

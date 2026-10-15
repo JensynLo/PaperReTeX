@@ -83,8 +83,12 @@ def safe_math(value):
     elif value.startswith(r"\[") and value.endswith(r"\]"):
         value = value[2:-2]
     value = re.sub(r"\\label\s*\{[^{}]*\}", "", value)
-    for command in re.findall(r"\\([a-zA-Z]+)", value):
-        if command not in MATH_COMMANDS:
+    # Tabs or form feeds here are JSON-decoded "\t"/"\f" escapes, not TeX input.
+    if re.search(r"[\x00-\x1f\x7f]", value.replace("\n", " ")):
+        raise ValueError("Control character in math")
+    # Tokenize so that "\\PE" is a line break followed by PE, not a command.
+    for command in re.findall(r"\\([a-zA-Z]+|.)", value):
+        if command.isalpha() and command not in MATH_COMMANDS:
             raise ValueError("Unsupported math command: \\" + command)
     for env in re.findall(r"\\(?:begin|end)\s*\{([^{}]+)\}", value):
         if env not in ENVIRONMENTS:
@@ -103,6 +107,75 @@ def safe_math(value):
     if depth:
         raise ValueError("Unbalanced math braces")
     return value
+
+
+def front_content(front):
+    if front.get("tex_lines"):
+        return r"\\".join(front["tex_lines"])
+    return r"\\".join(
+        r"\quad ".join(rich_text(t) for t in row)
+        for row in front.get("frontmatter_rows", [[front.get("text", "")]])
+    )
+
+
+def author_rows(fronts):
+    """Group author blocks that sit side by side in the source into rows."""
+    plain = [f for f in fronts if f.get("role") == "frontmatter" and f.get("bbox")]
+    rows = {}
+    for front in plain:
+        if front["id"] in rows:
+            continue
+        top, bottom = front["bbox"][1], front["bbox"][3]
+        row = [
+            other
+            for other in plain
+            if other["id"] not in rows
+            and min(bottom, other["bbox"][3]) - max(top, other["bbox"][1])
+            > 0.5 * min(bottom - top, other["bbox"][3] - other["bbox"][1])
+        ]
+        if len(row) > 1:
+            # Keep the reading-order first block as the row's emission point.
+            row.sort(key=lambda x: x["bbox"][0])
+            order = sorted(row, key=fronts.index)
+            row.insert(0, row.pop(row.index(order[0])))
+            for member in row:
+                rows[member["id"]] = row
+    return rows
+
+
+def author_row(row, layout):
+    """Place each block at its source x position, as in a multi-author header."""
+    scale = layout["paper_width"] / 1000
+    columns = []
+    for front in sorted(row, key=lambda x: x["bbox"][0]):
+        last = columns[-1] if columns else None
+        if last and front["bbox"][0] < max(x["bbox"][2] for x in last):
+            last.append(front)  # stacked lines of one author block
+        else:
+            columns.append([front])
+    out = r"{\noindent"
+    cursor = layout["left"]
+    for column in columns:
+        x0 = min(x["bbox"][0] for x in column) * scale
+        x1 = max(x["bbox"][2] for x in column) * scale
+        fsize = column[0].get("font_size", layout["font_size"])
+        out += (
+            r"\hspace*{"
+            + str(round(max(0, x0 - cursor - 2), 2))
+            + r"bp}\begin{minipage}[t]{"
+            + str(round(x1 - x0 + 4, 2))
+            + r"bp}\centering\fontsize{"
+            + str(fsize)
+            + "}{"
+            + str(round(fsize * 1.2, 2))
+            + r"}\selectfont "
+            + r"\\".join(
+                front_content(x) for x in sorted(column, key=lambda x: x["bbox"][1])
+            )
+            + r"\end{minipage}"
+        )
+        cursor = x1 + 2
+    return out + r"\par}"
 
 
 def rich_text(value):
@@ -316,6 +389,8 @@ def emit_document(blocks, destination, layout=None):
     source_page_index = 0
     previous_column = None
     body_started = False
+    # Merged blocks (e.g. a publisher notice above the title) only leave comments.
+    lead = next((b for b in blocks if not b.get("merged_into")), None)
     for i, b in enumerate(blocks):
         if b["page"] != page:
             source_page_index += 1
@@ -356,7 +431,7 @@ def emit_document(blocks, destination, layout=None):
             else:
                 level = min(int(b.get("level", 1)), 3)
             if (
-                i == 0
+                b is lead
                 and not numbered
                 and text.lower() not in ("abstract", "introduction")
             ):
@@ -393,12 +468,19 @@ def emit_document(blocks, destination, layout=None):
                     + r"\par\end{minipage}\par}"
                 )
                 previous = b
+                fronts = []
                 for front in blocks[i + 1 :]:
                     if front.get("merged_into"):
                         continue
-                    role = front.get("role", "")
-                    if not role.startswith("frontmatter"):
+                    if not front.get("role", "").startswith("frontmatter"):
                         break
+                    fronts.append(front)
+                rows = author_rows(fronts)
+                for front in fronts:
+                    role = front.get("role", "")
+                    row = rows.get(front["id"])
+                    if row is not None and row[0] is not front:
+                        continue  # emitted with the first block of its row
                     if front.get("bbox") and previous.get("bbox"):
                         gap = max(
                             0,
@@ -455,13 +537,12 @@ def emit_document(blocks, destination, layout=None):
                             + r"\end{minipage}\par\smallskip{}"
                         )
                         continue
+                    if row is not None:
+                        title += author_row(row, layout)
+                        previous = max(row, key=lambda x: x["bbox"][3])
+                        continue
                     fsize = front.get("font_size", layout["font_size"])
-                    content = r"\\".join(
-                        r"\quad ".join(rich_text(t) for t in row)
-                        for row in front.get(
-                            "frontmatter_rows", [[front.get("text", "")]]
-                        )
-                    )
+                    content = front_content(front)
                     face = (
                         r"\sffamily "
                         if "Biolinum" in front.get("font_name", "")
@@ -599,7 +680,7 @@ def emit_document(blocks, destination, layout=None):
                 + "}\n"
             )
         elif typ == "footnote":
-            if blocks[0]["type"] == "heading" and b["page"] == blocks[0]["page"]:
+            if lead and lead["type"] == "heading" and b["page"] == lead["page"]:
                 continue
             lines.append(
                 r"\begingroup\renewcommand{\thefootnote}{}\footnotetext{"

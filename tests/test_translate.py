@@ -103,3 +103,25 @@ def test_paragraph_split_keeps_environments_and_groups():
     )
     assert len(parts) == 3
     assert r"\begin{equation}" in parts[1] and r"\end{equation}" in parts[1]
+
+
+def test_bilingual_pairs_hybrid_regions_outside_page_frames():
+    from paperretex.translate import bilingual
+
+    def doc(first, second):
+        return (
+            "\\documentclass[10pt]{article}\n\\begin{document}\n"
+            "\\topskip=0pt\\baselineskip=0pt\\lineskip=0pt\\lineskiplimit=0pt\n"
+            "\\par\\noindent\\begin{sourceframe}{600}{400}{p1-b1-single}%\n"
+            "\\vspace*{12bp}\n"
+            "% p001-r0001 / paragraph\n" + first + "\n"
+            "% p001-r0002 / paragraph\n" + second + "\n"
+            "\\end{sourceframe}%\n\\par\n\\clearpage\n\\end{document}\n"
+        )
+
+    out = bilingual(doc("One.", "Two."), doc("Eins.", "Zwei."))
+    body = out.split("\\begin{paracol}{2}", 1)[1]
+    assert "sourceframe" not in body and "baselineskip=0pt" not in body
+    assert "\\clearpage" not in body
+    assert body.index("One.") < body.index("Eins.") < body.index("Two.")
+    assert body.index("Two.") < body.index("Zwei.")
