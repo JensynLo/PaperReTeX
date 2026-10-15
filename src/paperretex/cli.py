@@ -2,6 +2,7 @@ import argparse
 import hashlib
 import json
 import shutil
+import signal
 import subprocess
 import sys
 import tempfile
@@ -247,9 +248,25 @@ def convert(args):
     return 1 if args.compile and report["compile"]["status"] != "passed" else 0
 
 
+def _interrupt(signum, frame):
+    raise KeyboardInterrupt
+
+
+def install_interrupts():
+    """Make SIGINT and SIGTERM unwind normally so LLM process trees are stopped.
+
+    Shells start background jobs with SIGINT ignored, and Python keeps an
+    inherited "ignore"; without this, stopping a web job would orphan Codex.
+    """
+    signal.signal(signal.SIGINT, signal.default_int_handler)
+    if hasattr(signal, "SIGTERM"):
+        signal.signal(signal.SIGTERM, _interrupt)
+
+
 def main(argv=None):
     from .llm_cli import CODEX_EFFORTS
 
+    install_interrupts()
     parser = argparse.ArgumentParser(
         description="Academic PDF → editable LaTeX draft, assets, and an audit report."
     )
@@ -395,6 +412,13 @@ def main(argv=None):
     t.add_argument("--codex-command")
     t.add_argument("--timeout", type=int, default=900)
     sub.add_parser("doctor", help="Check runtime and compiler availability.")
+    w = sub.add_parser(
+        "serve",
+        help="Run the local web app: drop a PDF, download translated/bilingual PDFs.",
+    )
+    from .web import add_arguments
+
+    add_arguments(w)
     sub.add_parser(
         "install-runtimes",
         help="Install isolated BabelDOC and formula OCR environments.",
@@ -403,6 +427,11 @@ def main(argv=None):
     try:
         if getattr(args, "codex_effort", None) and args.llm_provider != "codex":
             raise ValueError("--codex-effort requires --llm-provider codex.")
+        if args.command == "serve":
+            from .web import serve
+
+            serve(args.host, args.port, args.workdir, args.allow_host)
+            return 0
         if args.command == "install-runtimes":
             from .runtime_install import install_runtimes
 
@@ -475,3 +504,7 @@ def main(argv=None):
     except (ValueError, OSError, RuntimeError) as exc:
         print("paperretex: " + str(exc), file=sys.stderr)
         return 2
+    except KeyboardInterrupt:
+        # Child LLM process trees were stopped while unwinding.
+        print("paperretex: interrupted", file=sys.stderr)
+        return 130

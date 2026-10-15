@@ -37,6 +37,7 @@ original source (there is an explicit, separate `--mode source` for that).
 - [Dependencies](#dependencies)
 - [Installation](#installation)
 - [Usage](#usage)
+- [Web app](#web-app)
 - [Output](#output)
 - [Privacy and network access](#privacy-and-network-access)
 - [Development](#development)
@@ -58,6 +59,8 @@ original source (there is an explicit, separate `--mode source` for that).
 - **Translation and bilingual PDF.** Batched translation keeps math, commands, citation
   keys and image paths intact, and produces `translated.pdf` and a landscape A3
   `bilingual.pdf` aligned by paragraph and float.
+- **Local web app.** Drop a PDF in the browser, choose options and download the
+  translated and bilingual PDFs; jobs are queued and kept across restarts.
 - **Built-in evaluation.** Page-by-page visual comparisons, pixel diffs, coverage
   metrics and figure-placement checks.
 
@@ -235,6 +238,38 @@ an existing run with a different effort.
 The output directory must be empty on the first run. `--resume` rebuilds generated TeX
 files, so copy any hand edits elsewhere first.
 
+## Web app
+
+For day-to-day use, run the local web app and keep it open:
+
+```sh
+python app.py --port 8765          # from a checkout; same as: paperretex serve --port 8765
+```
+
+Open <http://localhost:8765>, drop a PDF, choose the options and press **Start**. Each job
+runs `convert` and then `translate`, shows its stage, progress and log, and offers:
+
+| Download       | Content                                                               |
+| -------------- | --------------------------------------------------------------------- |
+| Bilingual PDF  | Original and translation side by side, aligned by paragraph and float |
+| Translated PDF | The translation alone                                                 |
+| Rebuilt PDF    | The original rebuilt from generated LaTeX                             |
+| LaTeX project  | `main.tex`, `regions/`, `assets/` and the audit reports as a `.zip`   |
+
+The form covers output (translate or LaTeX only), target language, Codex or Claude, page
+range and layout; **Advanced options** has the reasoning effort, LLM or local layout check,
+review batch size, rounds and timeouts, and the translation chunk size. The header shows
+whether Codex, Claude, XeLaTeX and the OCR runtimes were found.
+
+- Jobs run one at a time, because OCR and LLM review are heavy. They are stored in
+  `~/.cache/paperretex/web/` (change it with `--workdir`) and are still listed after a
+  restart; a job that was interrupted can be **resumed** and reuses finished stages.
+- **Cancel** stops the running command and the LLM CLI it started.
+- The server listens on `127.0.0.1` only. `--host 0.0.0.0` makes it reachable from other
+  computers **without any login**, so anyone who can reach it can spend your LLM quota;
+  add `--allow-host NAME:PORT` for the name they use to reach it.
+- Start it from a shell where `codex`/`claude` and `xelatex` are on `PATH`.
+
 ## Output
 
 ```text
@@ -278,7 +313,8 @@ python scripts/reverse_samples.py         # full reverse + evaluation on local s
 ```
 
 ```text
-src/paperretex/   CLI, layout, OCR, formula review, LaTeX, translation, evaluation
+app.py            starts the web app (python app.py --port 8765)
+src/paperretex/   CLI, web app, layout, OCR, formula review, LaTeX, translation, evaluation
 scripts/          runtime install, sample evaluation, formatting
 tests/            automated tests
 docs/assets/      README media

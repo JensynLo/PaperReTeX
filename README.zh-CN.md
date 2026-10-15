@@ -31,6 +31,7 @@ PaperReTeX 读取带原生文字层的 PDF，把它重建为普通的 LaTeX 工�
 - [依赖](#依赖)
 - [安装](#安装)
 - [使用](#使用)
+- [网页版](#网页版)
 - [输出](#输出)
 - [隐私与网络访问](#隐私与网络访问)
 - [开发](#开发)
@@ -43,6 +44,7 @@ PaperReTeX 读取带原生文字层的 PDF，把它重建为普通的 LaTeX 工�
 - **还原版式**：从 PDF 估计单栏或双栏、页面尺寸、页边距、字号、字体和间距。
 - **可审计、可续跑**：每个阶段都记录输入、提示词、响应和耗时。`--resume` 复用已完成的结果，失败的 LLM 批次不会被悄悄重试。
 - **翻译与对照 PDF**：批量翻译时保留公式、命令、引用键和图片路径，生成 `translated.pdf` 和按段落、图表对齐的横向 A3 `bilingual.pdf`。
+- **本地网页版**：在浏览器里拖入 PDF、选择参数，即可下载译文与左右对照 PDF；任务排队执行，服务重启后仍保留。
 - **内置评测**：逐页视觉对照、像素差异、内容覆盖率和图片位置检查。
 
 ## 工作流程
@@ -201,6 +203,30 @@ paperretex translate output/paper/main-flat.tex --llm-provider claude -o output/
 
 首次运行时输出目录必须为空。`--resume` 会重新生成 TeX 文件，如有手工修改请先另存。
 
+## 网页版
+
+日常使用可以启动本地网页服务，让它一直运行：
+
+```sh
+python app.py --port 8765          # 在源码目录运行；等同于 paperretex serve --port 8765
+```
+
+打开 <http://localhost:8765>，拖入 PDF，选好参数后点**开始**。每个任务依次执行 `convert` 和 `translate`，页面显示所处阶段、进度和日志，完成后可以下载：
+
+| 下载项       | 内容                                                        |
+| ------------ | ----------------------------------------------------------- |
+| 左右对照 PDF | 原文与译文并排，按段落和图表对齐                            |
+| 译文 PDF     | 只有译文                                                    |
+| 重建 PDF     | 由生成的 LaTeX 重新编译的原文                               |
+| LaTeX 工程   | `main.tex`、`regions/`、`assets/` 及审计报告，打包为 `.zip` |
+
+表单包括输出方式（翻译或只重建 LaTeX）、目标语言、Codex 或 Claude、页码范围和版式；**高级选项**中可设置推理强度、LLM 或本地版式预检、每次复核的公式数、复核轮数、超时和翻译分批大小。页面顶部会显示是否找到 Codex、Claude、XeLaTeX 和 OCR 环境。
+
+- 由于 OCR 和 LLM 复核开销较大，任务依次执行。任务保存在 `~/.cache/paperretex/web/`（可用 `--workdir` 修改），服务重启后仍会列出；中断的任务可以**续跑**，已完成的阶段会被复用。
+- **取消**会停止正在运行的命令及其启动的 LLM CLI。
+- 服务默认只监听 `127.0.0.1`。使用 `--host 0.0.0.0` 后其他电脑也能访问，但**没有登录验证**，能访问的人都会消耗你的 LLM 额度；对方使用的主机名需要用 `--allow-host 名称:端口` 加入白名单。
+- 请在 `codex`/`claude` 和 `xelatex` 都在 `PATH` 中的终端里启动。
+
 ## 输出
 
 ```text
@@ -239,7 +265,8 @@ python scripts/reverse_samples.py         # 对本地 samples/ 完整逆向并�
 ```
 
 ```text
-src/paperretex/   CLI、版面、OCR、公式复核、LaTeX、翻译与评测
+app.py            启动网页版（python app.py --port 8765）
+src/paperretex/   CLI、网页版、版面、OCR、公式复核、LaTeX、翻译与评测
 scripts/          运行环境安装、样例评测、格式化
 tests/            自动测试
 docs/assets/      README 使用的媒体文件

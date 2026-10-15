@@ -1,0 +1,535 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>PaperReTeX</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%236e56cf'/%3E%3Ctext x='16' y='22' font-family='Georgia,serif' font-size='17' fill='white' text-anchor='middle'%3ETX%3C/text%3E%3C/svg%3E">
+<style>
+:root {
+  --bg: #f6f7f9; --panel: #ffffff; --ink: #1c2026; --muted: #68707c; --line: #e3e6eb;
+  --soft: #f0f2f5; --accent: #6e56cf; --accent-ink: #ffffff; --accent-soft: #efebff;
+  --ok: #1a7f4b; --ok-soft: #e4f5ec; --warn: #9a6400; --warn-soft: #fdf3dc;
+  --bad: #c0362c; --bad-soft: #fdeceb; --shadow: 0 1px 2px rgba(16,24,40,.05), 0 4px 16px rgba(16,24,40,.06);
+  --mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #111317; --panel: #1a1d23; --ink: #e7e9ee; --muted: #9aa3b1; --line: #2b3039;
+    --soft: #22262e; --accent: #8f7cf0; --accent-ink: #ffffff; --accent-soft: #2a2546;
+    --ok: #4cc38a; --ok-soft: #173326; --warn: #f0b44c; --warn-soft: #3a2e14;
+    --bad: #ff7b72; --bad-soft: #3d1d1b; --shadow: none;
+  }
+}
+* { box-sizing: border-box; }
+[hidden] { display: none !important; }
+body { margin: 0; background: var(--bg); color: var(--ink);
+  font: 15px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", sans-serif; }
+button, input, select { font: inherit; color: inherit; }
+header { display: flex; align-items: center; gap: 16px; padding: 18px 28px; border-bottom: 1px solid var(--line); background: var(--panel); flex-wrap: wrap; }
+.brand { display: flex; align-items: center; gap: 10px; margin-right: auto; }
+.logo { width: 34px; height: 34px; border-radius: 9px; background: var(--accent); color: #fff; display: grid; place-items: center; font: 600 16px Georgia, serif; }
+.brand h1 { font-size: 18px; margin: 0; letter-spacing: -.01em; }
+.brand p { margin: 0; color: var(--muted); font-size: 13px; }
+.chips { display: flex; gap: 6px; flex-wrap: wrap; }
+.chip { font-size: 12px; padding: 3px 9px; border-radius: 99px; background: var(--soft); color: var(--muted); display: inline-flex; align-items: center; gap: 5px; }
+.chip i { width: 7px; height: 7px; border-radius: 50%; background: var(--muted); }
+.chip.on i { background: var(--ok); } .chip.off i { background: var(--bad); }
+.lang { border: 1px solid var(--line); background: var(--panel); border-radius: 8px; padding: 4px 10px; cursor: pointer; font-size: 13px; }
+main { display: grid; grid-template-columns: minmax(320px, 420px) 1fr; gap: 24px; padding: 24px 28px; max-width: 1360px; margin: 0 auto; }
+@media (max-width: 900px) { main { grid-template-columns: 1fr; padding: 16px; } header { padding: 14px 16px; } }
+.card { background: var(--panel); border: 1px solid var(--line); border-radius: 14px; box-shadow: var(--shadow); }
+.form { padding: 20px; position: sticky; top: 16px; align-self: start; }
+h2 { font-size: 15px; margin: 0 0 12px; }
+.drop { display: block; border: 1.5px dashed var(--line); border-radius: 12px; padding: 26px 16px; text-align: center; cursor: pointer; transition: .15s; background: var(--soft); }
+.drop:hover, .drop.over { border-color: var(--accent); background: var(--accent-soft); }
+.drop svg { width: 34px; height: 34px; color: var(--accent); }
+.drop strong { display: block; margin-top: 6px; }
+.drop span { color: var(--muted); font-size: 13px; }
+.file { display: flex; align-items: center; gap: 10px; border: 1px solid var(--line); border-radius: 10px; padding: 10px 12px; }
+.file .name { font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.file .size { color: var(--muted); font-size: 13px; }
+.file button { margin-left: auto; }
+.field { margin-top: 14px; }
+.field > label, .label { display: block; font-size: 13px; color: var(--muted); margin-bottom: 5px; }
+input[type=text], input[type=number], select { width: 100%; padding: 8px 10px; border: 1px solid var(--line); border-radius: 8px; background: var(--panel); }
+input:focus, select:focus, button:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+.seg { display: grid; grid-auto-flow: column; grid-auto-columns: 1fr; background: var(--soft); border-radius: 9px; padding: 3px; gap: 3px; }
+.seg button { border: 0; background: transparent; padding: 7px 8px; border-radius: 7px; cursor: pointer; color: var(--muted); }
+.seg button.on { background: var(--panel); color: var(--ink); box-shadow: 0 1px 2px rgba(0,0,0,.08); font-weight: 600; }
+.seg button:disabled { opacity: .45; cursor: not-allowed; }
+.row { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+details.adv { margin-top: 16px; border-top: 1px solid var(--line); padding-top: 12px; }
+details.adv summary { cursor: pointer; color: var(--muted); font-size: 13px; }
+.hint { color: var(--muted); font-size: 12px; margin-top: 4px; }
+.primary { width: 100%; margin-top: 18px; padding: 11px; border: 0; border-radius: 10px; background: var(--accent); color: var(--accent-ink); font-weight: 600; cursor: pointer; }
+.primary:disabled { opacity: .5; cursor: not-allowed; }
+.ghost { border: 1px solid var(--line); background: var(--panel); border-radius: 8px; padding: 5px 10px; cursor: pointer; font-size: 13px; }
+.ghost:hover { border-color: var(--accent); }
+.ghost.danger:hover { border-color: var(--bad); color: var(--bad); }
+.msg { margin-top: 10px; font-size: 13px; color: var(--bad); min-height: 1em; }
+.uploadbar { height: 4px; background: var(--soft); border-radius: 4px; margin-top: 10px; overflow: hidden; display: none; }
+.uploadbar div { height: 100%; width: 0; background: var(--accent); transition: width .2s; }
+.jobs-head { display: flex; align-items: baseline; justify-content: space-between; margin: 2px 2px 12px; }
+.jobs-head span { color: var(--muted); font-size: 13px; }
+.jobs { display: grid; gap: 14px; }
+.empty { padding: 48px 20px; text-align: center; color: var(--muted); }
+.job { padding: 16px 18px; }
+.job-top { display: flex; gap: 10px; align-items: flex-start; }
+.job-title { font-weight: 600; word-break: break-all; }
+.job-meta { color: var(--muted); font-size: 12px; margin-top: 2px; }
+.badge { margin-left: auto; font-size: 12px; padding: 2px 9px; border-radius: 99px; white-space: nowrap; font-weight: 600; }
+.badge.running, .badge.queued { background: var(--accent-soft); color: var(--accent); }
+.badge.done { background: var(--ok-soft); color: var(--ok); }
+.badge.failed { background: var(--bad-soft); color: var(--bad); }
+.badge.cancelled, .badge.interrupted { background: var(--warn-soft); color: var(--warn); }
+.steps { display: flex; gap: 4px; margin: 14px 0 6px; }
+.step { flex: 1; text-align: center; font-size: 11.5px; color: var(--muted); }
+.step b { display: block; height: 4px; border-radius: 3px; background: var(--soft); margin-bottom: 5px; }
+.step.done b { background: var(--accent); } .step.now b { background: linear-gradient(90deg, var(--accent) 50%, var(--accent-soft) 50%); background-size: 200% 100%; animation: slide 1.4s linear infinite; }
+.step.now { color: var(--ink); font-weight: 600; }
+@keyframes slide { from { background-position: 100% 0; } to { background-position: 0 0; } }
+.progress { display: flex; justify-content: space-between; color: var(--muted); font-size: 12px; }
+.detail { font-family: var(--mono); font-size: 11.5px; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.note { margin-top: 10px; padding: 8px 10px; border-radius: 8px; font-size: 13px; }
+.note.warn { background: var(--warn-soft); color: var(--warn); }
+.note.bad { background: var(--bad-soft); color: var(--bad); word-break: break-word; }
+.outputs { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 14px; }
+.out { display: inline-flex; border: 1px solid var(--line); border-radius: 9px; overflow: hidden; }
+.out a { padding: 7px 11px; text-decoration: none; color: var(--ink); font-size: 13px; display: inline-flex; align-items: center; gap: 6px; }
+.out a:hover { background: var(--soft); }
+.out a + a { border-left: 1px solid var(--line); color: var(--muted); }
+.out.main { border-color: var(--accent); }
+.out.main a:first-child { background: var(--accent); color: var(--accent-ink); }
+.out svg { width: 15px; height: 15px; }
+.stats { display: flex; gap: 14px; flex-wrap: wrap; margin-top: 10px; font-size: 12px; color: var(--muted); }
+.stats b { color: var(--ink); font-weight: 600; }
+.actions { display: flex; gap: 8px; margin-top: 12px; flex-wrap: wrap; }
+details.log { margin-top: 10px; }
+details.log summary { cursor: pointer; font-size: 12px; color: var(--muted); }
+details.log pre { margin: 8px 0 0; max-height: 260px; overflow: auto; background: var(--soft); border-radius: 8px; padding: 10px; font: 11.5px/1.45 var(--mono); white-space: pre-wrap; word-break: break-all; }
+.opts { font-size: 12px; color: var(--muted); margin-top: 6px; }
+</style>
+</head>
+<body>
+<header>
+  <div class="brand">
+    <div class="logo">TX</div>
+    <div><h1>PaperReTeX</h1><p data-i18n="tagline"></p></div>
+  </div>
+  <div class="chips" id="env"></div>
+  <button class="lang" id="lang" type="button"></button>
+</header>
+<main>
+  <section class="card form" aria-labelledby="new-title">
+    <h2 id="new-title" data-i18n="newJob"></h2>
+    <div id="picker">
+      <label class="drop" id="drop" tabindex="0">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z"/><path d="M14 3v5h5"/><path d="M12 17v-6"/><path d="m9 14 3-3 3 3"/></svg>
+        <strong data-i18n="dropTitle"></strong>
+        <span data-i18n="dropHint"></span>
+        <input type="file" id="fileInput" accept="application/pdf,.pdf" hidden>
+      </label>
+    </div>
+    <div class="file" id="chosen" hidden>
+      <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z"/><path d="M14 3v5h5"/></svg>
+      <div style="min-width:0"><div class="name" id="fileName"></div><div class="size" id="fileSize"></div></div>
+      <button class="ghost" type="button" id="clearFile" data-i18n="change"></button>
+    </div>
+
+    <div class="field">
+      <span class="label" data-i18n="output"></span>
+      <div class="seg" id="modeSeg">
+        <button type="button" data-value="true" data-i18n="modeTranslate"></button>
+        <button type="button" data-value="false" data-i18n="modeRebuild"></button>
+      </div>
+    </div>
+    <div class="field" id="targetField">
+      <label for="target" data-i18n="target"></label>
+      <input type="text" id="target" list="languages" maxlength="40">
+      <datalist id="languages">
+        <option value="简体中文"><option value="繁體中文"><option value="English"><option value="日本語">
+        <option value="한국어"><option value="Deutsch"><option value="Français"><option value="Español">
+      </datalist>
+    </div>
+    <div class="field">
+      <span class="label" data-i18n="llm"></span>
+      <div class="seg" id="providerSeg">
+        <button type="button" data-value="codex">Codex CLI</button>
+        <button type="button" data-value="claude">Claude Code</button>
+      </div>
+    </div>
+    <div class="row">
+      <div class="field">
+        <label for="pages" data-i18n="pages"></label>
+        <input type="text" id="pages" data-i18n-placeholder="pagesHint" inputmode="numeric">
+      </div>
+      <div class="field">
+        <label for="layoutProfile" data-i18n="layout"></label>
+        <select id="layoutProfile">
+          <option value="auto" data-i18n="auto"></option>
+          <option value="single_column" data-i18n="single"></option>
+          <option value="two_column" data-i18n="double"></option>
+        </select>
+      </div>
+    </div>
+
+    <details class="adv">
+      <summary data-i18n="advanced"></summary>
+      <div class="row">
+        <div class="field">
+          <label for="codexEffort" data-i18n="effort"></label>
+          <select id="codexEffort"></select>
+        </div>
+        <div class="field">
+          <label for="layoutReview" data-i18n="layoutReview"></label>
+          <select id="layoutReview">
+            <option value="llm" data-i18n="reviewLlm"></option>
+            <option value="local" data-i18n="reviewLocal"></option>
+          </select>
+        </div>
+      </div>
+      <div class="row">
+        <div class="field">
+          <label for="batchSize" data-i18n="batchSize"></label>
+          <input type="number" id="batchSize" min="1" max="48">
+        </div>
+        <div class="field">
+          <label for="rounds" data-i18n="rounds"></label>
+          <select id="rounds"><option value="2">2</option><option value="1">1</option></select>
+        </div>
+      </div>
+      <div class="row">
+        <div class="field">
+          <label for="formulaTimeout" data-i18n="formulaTimeout"></label>
+          <input type="number" id="formulaTimeout" min="60" max="7200" step="30">
+        </div>
+        <div class="field">
+          <label for="translateTimeout" data-i18n="translateTimeout"></label>
+          <input type="number" id="translateTimeout" min="60" max="7200" step="30">
+        </div>
+      </div>
+      <div class="field">
+        <label for="batchChars" data-i18n="batchChars"></label>
+        <input type="number" id="batchChars" min="2000" max="60000" step="1000">
+        <div class="hint" data-i18n="batchCharsHint"></div>
+      </div>
+    </details>
+
+    <button class="primary" id="start" type="button" disabled data-i18n="start"></button>
+    <div class="uploadbar" id="uploadbar"><div></div></div>
+    <div class="msg" id="msg" role="alert"></div>
+  </section>
+
+  <section aria-labelledby="jobs-title">
+    <div class="jobs-head"><h2 id="jobs-title" data-i18n="jobs"></h2><span data-i18n="jobsHint"></span></div>
+    <div class="jobs" id="jobs"></div>
+  </section>
+</main>
+
+<script>
+const T = {
+  en: {
+    tagline: "Academic PDF → editable LaTeX → translated & bilingual PDF",
+    newJob: "New job", dropTitle: "Drop a PDF here", dropHint: "or click to choose · PDFs with a text layer",
+    change: "Change", output: "Output", modeTranslate: "Translate + bilingual", modeRebuild: "Rebuild LaTeX only",
+    target: "Target language", llm: "LLM CLI", pages: "Pages", pagesHint: "All, e.g. 1-3,5", layout: "Layout",
+    auto: "Auto-detect", single: "Single column", double: "Two columns", advanced: "Advanced options",
+    effort: "Codex reasoning effort", effortDefault: "CLI default", layoutReview: "Layout check",
+    reviewLlm: "LLM preflight", reviewLocal: "Local geometry only", batchSize: "Formulas per review call",
+    rounds: "Review rounds", formulaTimeout: "Review timeout (s)", translateTimeout: "Translation timeout (s)",
+    batchChars: "Translation chunk (characters)", batchCharsHint: "Larger chunks mean fewer LLM calls.",
+    start: "Start", jobs: "Jobs", jobsHint: "Jobs run one at a time and are kept after a restart.",
+    empty: "No jobs yet. Drop a PDF on the left to start.",
+    queued: "Queued", running: "Running", done: "Done", failed: "Failed", cancelled: "Cancelled", interrupted: "Interrupted",
+    sLayout: "Layout", sOcr: "Formula OCR", sReview: "Formula review", sAssemble: "LaTeX & compile", sTranslate: "Translate",
+    open: "Open", download: "Download", bilingual: "Bilingual PDF", translated: "Translated PDF", rebuilt: "Rebuilt PDF",
+    latex: "LaTeX project", cancel: "Cancel", resume: "Resume", remove: "Delete", log: "Log",
+    confirmDelete: "Delete this job and its files?", notPdf: "Please choose a PDF file.", tooLarge: "The file is too large.",
+    uploading: "Uploading…", pagesBad: "Pages must look like 1-3,5.", missing: "not found",
+    statPages: "pages", statFormulas: "formulas reviewed", statUncertain: "uncertain", statCalls: "LLM calls", elapsed: "elapsed",
+    round2: "second round", translateOff: "LaTeX only", runtimes: "OCR runtimes",
+  },
+  zh: {
+    tagline: "学术 PDF → 可编辑 LaTeX → 译文与左右对照 PDF",
+    newJob: "新建任务", dropTitle: "把 PDF 拖到这里", dropHint: "或点击选择 · 需要带文字层的 PDF",
+    change: "更换", output: "输出", modeTranslate: "翻译 + 左右对照", modeRebuild: "只重建 LaTeX",
+    target: "目标语言", llm: "LLM 命令行工具", pages: "页码", pagesHint: "全部，例如 1-3,5", layout: "版式",
+    auto: "自动判断", single: "单栏", double: "双栏", advanced: "高级选项",
+    effort: "Codex 推理强度", effortDefault: "沿用 CLI 配置", layoutReview: "版式预检",
+    reviewLlm: "LLM 预检", reviewLocal: "仅本地几何判断", batchSize: "每次复核的公式数",
+    rounds: "复核轮数", formulaTimeout: "复核超时（秒）", translateTimeout: "翻译超时（秒）",
+    batchChars: "翻译分批（字符数）", batchCharsHint: "分批越大，LLM 调用次数越少。",
+    start: "开始", jobs: "任务", jobsHint: "任务依次执行，服务重启后仍会保留。",
+    empty: "还没有任务。把 PDF 拖到左侧即可开始。",
+    queued: "排队中", running: "进行中", done: "已完成", failed: "失败", cancelled: "已取消", interrupted: "已中断",
+    sLayout: "版面", sOcr: "公式 OCR", sReview: "公式复核", sAssemble: "生成与编译", sTranslate: "翻译",
+    open: "打开", download: "下载", bilingual: "左右对照 PDF", translated: "译文 PDF", rebuilt: "重建 PDF",
+    latex: "LaTeX 工程", cancel: "取消", resume: "续跑", remove: "删除", log: "日志",
+    confirmDelete: "删除这个任务及其文件？", notPdf: "请选择 PDF 文件。", tooLarge: "文件太大。",
+    uploading: "正在上传…", pagesBad: "页码格式应类似 1-3,5。", missing: "未找到",
+    statPages: "页", statFormulas: "个公式已复核", statUncertain: "个不确定", statCalls: "次 LLM 调用", elapsed: "耗时",
+    round2: "第二轮", translateOff: "仅 LaTeX", runtimes: "OCR 环境",
+  },
+};
+const store = {
+  get(k) { try { return JSON.parse(localStorage.getItem("paperretex." + k)); } catch { return null; } },
+  set(k, v) { try { localStorage.setItem("paperretex." + k, JSON.stringify(v)); } catch {} },
+};
+const urlLang = new URLSearchParams(location.search).get("lang");
+let lang = T[urlLang] ? urlLang : store.get("lang") || ((navigator.language || "").toLowerCase().startsWith("zh") ? "zh" : "en");
+let config = null, file = null, jobs = [], timer = null;
+const $ = (id) => document.getElementById(id);
+const t = (k) => (T[lang] && T[lang][k]) || T.en[k] || k;
+const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+const api = async (path, opts = {}) => {
+  const res = await fetch(path, { ...opts, headers: { "X-PaperReTeX": "1", ...(opts.headers || {}) } });
+  const body = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(body.error || res.statusText);
+  return body;
+};
+
+function applyLang() {
+  document.documentElement.lang = lang === "zh" ? "zh-CN" : "en";
+  document.querySelectorAll("[data-i18n]").forEach((el) => (el.textContent = t(el.dataset.i18n)));
+  document.querySelectorAll("[data-i18n-placeholder]").forEach((el) => (el.placeholder = t(el.dataset.i18nPlaceholder)));
+  $("lang").textContent = lang === "zh" ? "English" : "中文";
+  fillEfforts();
+  renderEnv();
+  renderJobs();
+}
+
+function seg(id, value) {
+  $(id).querySelectorAll("button").forEach((b) => b.classList.toggle("on", b.dataset.value === String(value)));
+}
+function segValue(id) {
+  const on = $(id).querySelector("button.on");
+  return on ? on.dataset.value : null;
+}
+
+function fillEfforts() {
+  const sel = $("codexEffort"), current = sel.value;
+  const efforts = (config && config.efforts) || [];
+  sel.innerHTML = `<option value="">${esc(t("effortDefault"))}</option>` + efforts.map((e) => `<option>${esc(e)}</option>`).join("");
+  sel.value = current;
+  sel.disabled = segValue("providerSeg") !== "codex";
+}
+
+function renderEnv() {
+  if (!config) return;
+  const env = config.environment;
+  const items = [["Codex", env.codex], ["Claude", env.claude], ["XeLaTeX", env.xelatex], [t("runtimes"), env.runtimes]];
+  $("env").innerHTML = items.map(([n, ok]) => `<span class="chip ${ok ? "on" : "off"}" title="${ok ? "" : esc(t("missing"))}"><i></i>${esc(n)}</span>`).join("");
+  $("providerSeg").querySelectorAll("button").forEach((b) => (b.disabled = !env[b.dataset.value]));
+}
+
+function options() {
+  return {
+    translate: segValue("modeSeg") === "true",
+    target: $("target").value.trim(),
+    llm_provider: segValue("providerSeg"),
+    codex_effort: segValue("providerSeg") === "codex" ? $("codexEffort").value : "",
+    pages: $("pages").value.replace(/\s+/g, ""),
+    layout_profile: $("layoutProfile").value,
+    layout_review: $("layoutReview").value,
+    formula_batch_size: Number($("batchSize").value),
+    formula_review_rounds: Number($("rounds").value),
+    formula_timeout: Number($("formulaTimeout").value),
+    batch_chars: Number($("batchChars").value),
+    translate_timeout: Number($("translateTimeout").value),
+  };
+}
+
+function loadOptions() {
+  const o = { ...config.defaults, ...(store.get("options") || {}) };
+  seg("modeSeg", o.translate);
+  $("target").value = o.target;
+  const env = config.environment;
+  seg("providerSeg", env[o.llm_provider] || !(env.codex || env.claude) ? o.llm_provider : env.codex ? "codex" : "claude");
+  fillEfforts();
+  $("codexEffort").value = o.codex_effort || "";
+  $("pages").value = "";
+  $("layoutProfile").value = o.layout_profile;
+  $("layoutReview").value = o.layout_review;
+  $("batchSize").value = o.formula_batch_size;
+  $("rounds").value = String(o.formula_review_rounds);
+  $("formulaTimeout").value = o.formula_timeout;
+  $("batchChars").value = o.batch_chars;
+  $("translateTimeout").value = o.translate_timeout;
+  toggleTarget();
+}
+
+function toggleTarget() { $("targetField").hidden = segValue("modeSeg") !== "true"; }
+
+function size(n) { return n > 1048576 ? (n / 1048576).toFixed(1) + " MB" : Math.max(1, Math.round(n / 1024)) + " KB"; }
+
+function choose(f) {
+  $("msg").textContent = "";
+  if (!f) return;
+  if (!/\.pdf$/i.test(f.name) && f.type !== "application/pdf") { $("msg").textContent = t("notPdf"); return; }
+  if (config && f.size > config.max_upload) { $("msg").textContent = t("tooLarge"); return; }
+  file = f;
+  $("fileName").textContent = f.name; $("fileSize").textContent = size(f.size);
+  $("picker").hidden = true; $("chosen").hidden = false; $("start").disabled = false;
+}
+
+function clearFile() {
+  file = null; $("fileInput").value = "";
+  $("picker").hidden = false; $("chosen").hidden = true; $("start").disabled = true;
+}
+
+function start() {
+  const o = options();
+  if (o.pages && !/^\d+(-\d+)?(,\d+(-\d+)?)*$/.test(o.pages)) { $("msg").textContent = t("pagesBad"); return; }
+  store.set("options", { ...o, pages: "" });
+  const xhr = new XMLHttpRequest();
+  const url = `/api/jobs?name=${encodeURIComponent(file.name)}&options=${encodeURIComponent(JSON.stringify(o))}`;
+  xhr.open("POST", url);
+  xhr.setRequestHeader("X-PaperReTeX", "1");
+  xhr.setRequestHeader("Content-Type", "application/pdf");
+  const bar = $("uploadbar");
+  bar.style.display = "block"; $("start").disabled = true; $("msg").textContent = "";
+  $("start").textContent = t("uploading");
+  xhr.upload.onprogress = (e) => { if (e.lengthComputable) bar.firstElementChild.style.width = (100 * e.loaded / e.total) + "%"; };
+  xhr.onloadend = () => {
+    bar.style.display = "none"; bar.firstElementChild.style.width = "0";
+    $("start").textContent = t("start");
+    let body = {};
+    try { body = JSON.parse(xhr.responseText); } catch {}
+    if (xhr.status === 201) { clearFile(); refresh(); }
+    else { $("start").disabled = false; $("msg").textContent = body.error || xhr.statusText || "Upload failed"; }
+  };
+  xhr.send(file);
+}
+
+const STEP_KEYS = [["layout", "sLayout"], ["ocr", "sOcr"], ["review", "sReview"], ["assemble", "sAssemble"], ["translate", "sTranslate"]];
+const ICON = {
+  open: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M14 4h6v6"/><path d="M10 14 20 4"/><path d="M19 13v5a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V7a2 2 0 0 1 2-2h5"/></svg>',
+  down: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 4v11"/><path d="m7 10 5 5 5-5"/><path d="M5 20h14"/></svg>',
+};
+const OUT_LABEL = { "bilingual.pdf": "bilingual", "translated.pdf": "translated", "rebuilt.pdf": "rebuilt", "latex-project.zip": "latex" };
+
+function duration(job) {
+  if (!job.started) return "";
+  const s = Math.max(0, Math.round((job.finished || Date.now() / 1000) - job.started));
+  return s >= 3600 ? `${Math.floor(s / 3600)}h ${Math.floor(s % 3600 / 60)}m` : s >= 60 ? `${Math.floor(s / 60)}m ${s % 60}s` : `${s}s`;
+}
+
+function jobCard(job) {
+  const o = job.options;
+  const steps = STEP_KEYS.filter(([k]) => k !== "translate" || o.translate);
+  const at = steps.findIndex(([k]) => k === job.stage);
+  const finished = job.status === "done";
+  const stepHtml = steps.map(([k, label], i) => {
+    const cls = finished || (at >= 0 && i < at) ? "done" : i === at && job.status === "running" ? "now" : "";
+    return `<div class="step ${cls}"><b></b>${esc(t(label))}</div>`;
+  }).join("");
+  const active = job.status === "running" || job.status === "queued";
+  const pct = Math.round((job.progress || 0) * 100);
+  const outs = (job.outputs || []).map((name) => {
+    const href = `/api/jobs/${encodeURIComponent(job.id)}/files/${name}`;
+    const main = name === "bilingual.pdf" || (!o.translate && name === "rebuilt.pdf");
+    const openable = name.endsWith(".pdf");
+    return `<span class="out ${main ? "main" : ""}">` +
+      (openable ? `<a href="${href}" target="_blank" rel="noopener">${ICON.open}${esc(t(OUT_LABEL[name]))}</a><a href="${href}?download=1" title="${esc(t("download"))}" aria-label="${esc(t("download"))}">${ICON.down}</a>`
+                : `<a href="${href}?download=1">${ICON.down}${esc(t(OUT_LABEL[name]))} (.zip)</a>`) + `</span>`;
+  }).join("");
+  const s = job.summary || {};
+  const stats = finished && s.pages ? `<div class="stats"><span><b>${s.pages}</b> ${esc(t("statPages"))}</span><span><b>${s.formulas_reviewed ?? 0}</b> ${esc(t("statFormulas"))}</span><span><b>${s.formulas_uncertain ?? 0}</b> ${esc(t("statUncertain"))}</span><span><b>${s.llm_calls ?? 0}</b> ${esc(t("statCalls"))}</span><span>${esc(t("elapsed"))} <b>${esc(duration(job))}</b></span></div>` : "";
+  const optsLine = [o.translate ? o.target : t("translateOff"), o.llm_provider === "codex" ? "Codex" : "Claude", o.codex_effort, o.pages ? `p. ${o.pages}` : "", o.layout_profile !== "auto" ? t(o.layout_profile === "single_column" ? "single" : "double") : ""].filter(Boolean).map(esc).join(" · ");
+  const detail = job.status === "running" ? (job.detail || (job.review_round === 2 && job.stage === "review" ? t("round2") : "")) : "";
+  const canResume = ["failed", "interrupted", "cancelled"].includes(job.status);
+  return `<article class="card job" data-id="${esc(job.id)}">
+    <div class="job-top"><div style="min-width:0"><div class="job-title">${esc(job.name)}</div>
+      <div class="job-meta">${esc(new Date(job.created * 1000).toLocaleString(lang === "zh" ? "zh-CN" : undefined))} · ${size(job.size)}</div>
+      <div class="opts">${optsLine}</div></div>
+      <span class="badge ${esc(job.status)}">${esc(t(job.status))}</span></div>
+    ${job.status !== "queued" ? `<div class="steps">${stepHtml}</div>` : ""}
+    ${active && job.status === "running" ? `<div class="progress"><span>${pct}%</span><span>${esc(t("elapsed"))} ${esc(duration(job))}</span></div><div class="detail">${esc(detail)}</div>` : ""}
+    ${(job.warnings || []).map((w) => `<div class="note warn">${esc(w)}</div>`).join("")}
+    ${job.error && !["done", "cancelled"].includes(job.status) ? `<div class="note bad">${esc(job.error)}</div>` : ""}
+    ${stats}
+    ${outs ? `<div class="outputs">${outs}</div>` : ""}
+    <div class="actions">
+      ${active ? `<button class="ghost danger" data-act="cancel">${esc(t("cancel"))}</button>` : ""}
+      ${canResume ? `<button class="ghost" data-act="resume">${esc(t("resume"))}</button>` : ""}
+      ${!active ? `<button class="ghost danger" data-act="delete">${esc(t("remove"))}</button>` : ""}
+    </div>
+    ${job.status !== "queued" ? `<details class="log" data-log="${esc(job.id)}"><summary>${esc(t("log"))}</summary><pre>…</pre></details>` : ""}
+  </article>`;
+}
+
+const openLogs = new Set();
+function renderJobs() {
+  const box = $("jobs");
+  if (!config) return;
+  if (!jobs.length) { box.innerHTML = `<div class="card empty">${esc(t("empty"))}</div>`; return; }
+  box.innerHTML = jobs.map(jobCard).join("");
+  box.querySelectorAll("details.log").forEach((d) => {
+    if (openLogs.has(d.dataset.log)) { d.open = true; loadLog(d); }
+    d.addEventListener("toggle", () => { d.open ? (openLogs.add(d.dataset.log), loadLog(d)) : openLogs.delete(d.dataset.log); });
+  });
+}
+
+const logCache = {};
+async function loadLog(d) {
+  const pre = d.querySelector("pre");
+  if (logCache[d.dataset.log]) pre.textContent = logCache[d.dataset.log];
+  try {
+    const job = await api(`/api/jobs/${encodeURIComponent(d.dataset.log)}`);
+    logCache[d.dataset.log] = job.log || "";
+    const stick = pre.scrollTop + pre.clientHeight >= pre.scrollHeight - 8;
+    pre.textContent = job.log || "";
+    if (stick) pre.scrollTop = pre.scrollHeight;
+  } catch {}
+}
+
+async function refresh() {
+  try {
+    const body = await api("/api/jobs");
+    jobs = body.jobs;
+    const scroll = window.scrollY;
+    renderJobs();
+    window.scrollTo(0, scroll);
+  } catch {}
+  clearTimeout(timer);
+  timer = setTimeout(refresh, jobs.some((j) => j.status === "running" || j.status === "queued") ? 2000 : 10000);
+}
+
+$("jobs").addEventListener("click", async (e) => {
+  const btn = e.target.closest("button[data-act]");
+  if (!btn) return;
+  const id = btn.closest(".job").dataset.id, act = btn.dataset.act;
+  if (act === "delete" && !confirm(t("confirmDelete"))) return;
+  btn.disabled = true;
+  try {
+    if (act === "delete") await api(`/api/jobs/${encodeURIComponent(id)}`, { method: "DELETE" });
+    else await api(`/api/jobs/${encodeURIComponent(id)}/${act}`, { method: "POST" });
+  } catch (err) { alert(err.message); }
+  refresh();
+});
+
+const drop = $("drop");
+drop.addEventListener("keydown", (e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); $("fileInput").click(); } });
+$("fileInput").addEventListener("change", (e) => choose(e.target.files[0]));
+["dragenter", "dragover"].forEach((ev) => drop.addEventListener(ev, (e) => { e.preventDefault(); drop.classList.add("over"); }));
+["dragleave", "drop"].forEach((ev) => drop.addEventListener(ev, (e) => { e.preventDefault(); drop.classList.remove("over"); }));
+drop.addEventListener("drop", (e) => choose(e.dataTransfer.files[0]));
+// Dropping anywhere on the page should not navigate away to the PDF.
+window.addEventListener("dragover", (e) => e.preventDefault());
+window.addEventListener("drop", (e) => { e.preventDefault(); if (e.dataTransfer.files[0] && !file) choose(e.dataTransfer.files[0]); });
+$("clearFile").addEventListener("click", clearFile);
+$("start").addEventListener("click", start);
+$("modeSeg").addEventListener("click", (e) => { const b = e.target.closest("button"); if (b) { seg("modeSeg", b.dataset.value); toggleTarget(); } });
+$("providerSeg").addEventListener("click", (e) => { const b = e.target.closest("button"); if (b && !b.disabled) { seg("providerSeg", b.dataset.value); fillEfforts(); } });
+$("lang").addEventListener("click", () => { lang = lang === "zh" ? "en" : "zh"; store.set("lang", lang); applyLang(); });
+
+(async () => {
+  try { config = await api("/api/config"); } catch (err) { $("msg").textContent = err.message; return; }
+  loadOptions();
+  applyLang();
+  refresh();
+})();
+</script>
+</body>
+</html>
