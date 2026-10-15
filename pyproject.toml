@@ -7,7 +7,13 @@ name = "PaperReTeX"
 version = "0.1.0"
 description = "Academic PDF to editable LaTeX reconstruction and bilingual PDF generation"
 requires-python = ">=3.9"
-dependencies = ["PyMuPDF>=1.26.5", "pypdf>=5", "fonttools>=4.50", "numpy>=1.23", "Pillow>=9"]
+dependencies = [
+  "PyMuPDF>=1.26.5",
+  "pypdf>=5",
+  "fonttools>=4.50",
+  "numpy>=1.23",
+  "Pillow>=9",
+]
 
 [project.optional-dependencies]
 dev = ["pytest>=8"]
@@ -16,7 +22,7 @@ dev = ["pytest>=8"]
 paperretex = "paperretex.cli:main"
 
 [tool.setuptools]
-package-dir = {"" = "src"}
+package-dir = { "" = "src" }
 
 [tool.setuptools.packages.find]
 where = ["src"]
@@ -28,3 +34,12 @@ paperretex = ["data/*.lock"]
 [tool.pytest.ini_options]
 pythonpath = ["src"]
 testpaths = ["tests"]
+
+[tool.ruff]
+target-version = "py39"
+line-length = 88
+
+[tool.ruff.format]
+quote-style = "double"
+indent-style = "space"
+preview = true

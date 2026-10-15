@@ -13,20 +13,24 @@ from .hybrid import runtime
 
 def doctor():
     runtimes = {}
-    for name in ('babeldoc', 'ocr'):
+    for name in ("babeldoc", "ocr"):
         try:
-            runtimes[name+'_python'] = str(runtime(name))
+            runtimes[name + "_python"] = str(runtime(name))
         except ValueError:
-            runtimes[name+'_python'] = None
-    local_mineru = cache_root()/'ocr-runtime'/(
-        'Scripts/mineru.exe' if os.name == 'nt' else 'bin/mineru')
+            runtimes[name + "_python"] = None
+    local_mineru = (
+        cache_root()
+        / "ocr-runtime"
+        / ("Scripts/mineru.exe" if os.name == "nt" else "bin/mineru")
+    )
     return {
         **runtimes,
-        'python': sys.version.split()[0],
-        'pymupdf': fitz.VersionBind,
-        'pypdf': pypdf.__version__,
-        'xelatex': shutil.which('xelatex'),
-        'codex': shutil.which('codex'),
-        'claude': shutil.which('claude'),
-        'mineru': shutil.which('mineru') or (str(local_mineru) if local_mineru.is_file() else None),
+        "python": sys.version.split()[0],
+        "pymupdf": fitz.VersionBind,
+        "pypdf": pypdf.__version__,
+        "xelatex": shutil.which("xelatex"),
+        "codex": shutil.which("codex"),
+        "claude": shutil.which("claude"),
+        "mineru": shutil.which("mineru")
+        or (str(local_mineru) if local_mineru.is_file() else None),
     }

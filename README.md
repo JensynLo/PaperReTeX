@@ -41,20 +41,22 @@ paperretex translate output/paper/main-flat.tex --llm-provider claude -o output/
 
 `--llm-command /path/to/executable` 可指定 CLI 可执行文件；`--codex-command` 是兼容旧命令的别名。Claude 的图像复核通过受限的 Read 工具读取本次生成的裁图；Codex 使用 `--image`。两个适配器都要求结构化 JSON，程序会校验 ID、公式安全性及缓存身份。CLI 调用会向所选服务发送裁图、OCR 候选及相关正文；翻译会发送 TeX 文字片段。请自行配置相应 CLI 的账号与模型。
 
+可用 `--codex-effort low|medium|high|xhigh|max|ultra` 为本次 Codex 调用指定推理强度，例如 `paperretex convert paper.pdf --codex-effort high -o output/paper`。该选项适用于 `convert`、`inspect` 和 `translate`；省略时沿用 Codex 自身配置。布局预检和公式复核会使用同一强度，翻译命令也使用指定强度。可用档位取决于所选 Codex 模型和客户端；较高强度通常需要更多时间和 token，不保证每个结果都更准确。更改强度会产生独立缓存；已有 hybrid 输出不能以不同强度 `--resume`。
+
 `--layout-review local` 跳过 CLI 版式预检，但公式复核仍调用所选 CLI。`--pages 1-3,5` 只处理指定页。首次运行要求输出目录为空；中断后用相同参数加 `--resume`，失败的公式批次需要再加 `--retry-formulas` 才重试。`--formula-batch-size` 默认 36，最大 48；`--formula-review-rounds` 可设为 1 或 2。`--evaluate` 必须配合 `--compile`。
 
 主要输出包括 `main.tex`、`main-flat.tex`、`regions/*.tex`、`main.pdf`、`report.json`、`formulas.json` 和各阶段审计日志。完整论文的评测在 `comparison/` 与 `pixel-comparison/`；`report.json` 记录页数、未确认公式、页面框缩放及视觉误差。翻译输出 `translated.pdf` 与 `bilingual.pdf`。
 
 ## 配置与目录
 
-| 路径 | 用途 |
-| --- | --- |
-| `src/paperretex/` | CLI、布局、OCR、公式复核、LaTeX、翻译与评测模块 |
-| `src/paperretex/llm_cli.py` | Codex／Claude 命令和结构化响应适配 |
-| `scripts/` | 独立模型环境安装、样例评测与辅助工具 |
-| `tests/` | 不调用真实模型的自动测试 |
-| `samples/` | 本地参考 PDF，默认不加入 Git |
-| `output/` | 转换与评测结果，默认不加入 Git |
+| 路径                        | 用途                                            |
+| --------------------------- | ----------------------------------------------- |
+| `src/paperretex/`           | CLI、布局、OCR、公式复核、LaTeX、翻译与评测模块 |
+| `src/paperretex/llm_cli.py` | Codex／Claude 命令和结构化响应适配              |
+| `scripts/`                  | 独立模型环境安装、样例评测与辅助工具            |
+| `tests/`                    | 不调用真实模型的自动测试                        |
+| `samples/`                  | 本地参考 PDF，默认不加入 Git                    |
+| `output/`                   | 转换与评测结果，默认不加入 Git                  |
 
 `pyproject.toml` 定义包、命令行入口与开发依赖；`.gitignore` 排除模型环境、缓存、输出和样例 PDF。运行测试：
 
@@ -62,6 +64,18 @@ paperretex translate output/paper/main-flat.tex --llm-provider claude -o output/
 python -m pytest -q
 python -m compileall -q src/paperretex scripts
 ```
+
+### 统一格式化
+
+仓库的 `.vscode/settings.json` 将 Python 的保存格式器设为 Ruff，将 Markdown／JSON 设为 Prettier；`.editorconfig` 和 `pyproject.toml` 固定缩进、换行及 Ruff 规则。批量脚本只遍历 Git 管理及未被忽略的源码文件，使用 Ruff 0.17.0、Prettier 3.7.4、Taplo 0.9.3 和 shfmt。先安装 `uv`、Node.js／`npx`、`shfmt`（macOS 可用 `brew install shfmt`），然后运行：
+
+```sh
+python scripts/format_project.py
+python scripts/format_project.py --check
+python -m pytest -q
+```
+
+脚本处理 `.py`、`.md`、`.json`、`.toml` 和 `.sh`；PDF、依赖锁文件、`.gitignore` 与 `MANIFEST.in` 没有对应的代码格式器，不会改写。建议先用 `git diff` 审查批量格式化结果。
 
 ## 当前限制
 
