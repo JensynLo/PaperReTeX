@@ -1,4 +1,5 @@
 import json
+import time
 from pathlib import Path
 from types import SimpleNamespace
 import fitz
@@ -87,23 +88,101 @@ def test_codex_preflight_one_cached_call_and_manual_override(tmp_path, monkeypat
     assert len(calls) == 2
 
 
-def test_invalid_response_blocks_repeated_calls(tmp_path, monkeypatch):
+def valid_response(pages):
+    return {
+        "family": "single_column",
+        "confidence": 0.95,
+        "single_column_score": 95,
+        "two_column_score": 5,
+        "text_source": "native",
+        "pages": [
+            {
+                "page": i,
+                "body_columns": 1,
+                "confidence": 0.95,
+                "full_width_elements": [],
+                "notes": "",
+            }
+            for i in pages
+        ],
+        "risks": [],
+        "summary": "单栏正文",
+    }
+
+
+def test_failed_call_is_not_cached_and_retries(tmp_path, monkeypatch):
     pdf = tmp_path / "paper.pdf"
     make_pdf(pdf, (1,))
     calls = []
+    replies = [
+        SimpleNamespace(returncode=1, stdout="workspace routing discovery timed out"),
+        SimpleNamespace(returncode=0, stdout="invalid"),
+        SimpleNamespace(returncode=0, stdout="done"),
+    ]
     monkeypatch.setattr("paperretex.preflight.shutil.which", lambda x: "/fake/codex")
 
     def run(command, **kwargs):
         calls.append(command)
-        Path(command[command.index("--output-last-message") + 1]).write_text("{}")
-        return SimpleNamespace(returncode=0, stdout="invalid")
+        reply = replies[len(calls) - 1]
+        body = json.dumps(valid_response([1])) if reply.stdout == "done" else "{}"
+        Path(command[command.index("--output-last-message") + 1]).write_text(body)
+        return reply
 
     monkeypatch.setattr("paperretex.preflight.subprocess.run", run)
-    with pytest.raises(RuntimeError, match="stopped before OCR"):
-        assess_layout(pdf, cache_root=tmp_path / "cache")
-    with pytest.raises(RuntimeError, match="Previous layout call"):
-        assess_layout(pdf, cache_root=tmp_path / "cache")
+    cache = tmp_path / "cache"
+    for _ in range(2):
+        with pytest.raises(RuntimeError, match="stopped before OCR"):
+            assess_layout(pdf, cache_root=cache)
+    plan = assess_layout(pdf, cache_root=cache)
+    assert not plan["cache_hit"] and plan["review"]["family"] == "single_column"
+    assert assess_layout(pdf, cache_root=cache)["cache_hit"]
+    assert len(calls) == 3
+    ledger = json.loads(next(cache.glob("*/call.json")).read_text())
+    assert ledger["status"] == "completed" and ledger["attempts"] == 3
+
+
+def test_interrupted_or_stale_call_retries_but_live_call_blocks(tmp_path, monkeypatch):
+    pdf = tmp_path / "paper.pdf"
+    make_pdf(pdf, (1,))
+    cache = tmp_path / "cache"
+    calls = []
+    monkeypatch.setattr("paperretex.preflight.shutil.which", lambda x: "/fake/codex")
+
+    def cancelled(command, **kwargs):
+        calls.append(command)
+        raise KeyboardInterrupt
+
+    monkeypatch.setattr("paperretex.preflight.subprocess.run", cancelled)
+    with pytest.raises(KeyboardInterrupt):
+        assess_layout(pdf, cache_root=cache)
+    ledger_path = next(cache.glob("*/call.json"))
+    assert json.loads(ledger_path.read_text())["status"] == "interrupted"
+
+    # A call that started moments ago may still be running in another process.
+    live = {"status": "started", "started": time.time(), "timeout": 300}
+    ledger_path.write_text(json.dumps(live))
+    with pytest.raises(RuntimeError, match="may still be running"):
+        assess_layout(pdf, cache_root=cache)
     assert len(calls) == 1
+
+    def run(command, **kwargs):
+        calls.append(command)
+        Path(command[command.index("--output-last-message") + 1]).write_text(
+            json.dumps(valid_response([1]))
+        )
+        return SimpleNamespace(returncode=0, stdout="done")
+
+    monkeypatch.setattr("paperretex.preflight.subprocess.run", run)
+    assert assess_layout(pdf, cache_root=cache, retry=True)["review"]
+    assert len(calls) == 2
+
+    # A process killed mid-call long ago leaves a stale "started" ledger.
+    ledger_path.unlink()
+    (ledger_path.parent / "result.json").unlink()
+    stale = {"status": "started", "started": time.time() - 3600, "timeout": 300}
+    ledger_path.write_text(json.dumps(stale))
+    assert assess_layout(pdf, cache_root=cache)["review"]
+    assert len(calls) == 3
 
 
 def test_column_order_and_spanning_bands():

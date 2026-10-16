@@ -1,10 +1,15 @@
-"""One cached CLI layout assessment before OCR; dimensions stay PDF-derived."""
+"""One cached CLI layout assessment before OCR; dimensions stay PDF-derived.
+
+Only completed assessments are cached. A failed or interrupted call is retried
+by the next run, so a transient network error never blocks the same PDF.
+"""
 
 import hashlib
 import json
 from pathlib import Path
 import shutil
 import subprocess
+import time
 import fitz
 from .geometry import infer_layout
 from .profiles import PROFILES
@@ -177,6 +182,15 @@ def validate_review(value, sampled):
     return value
 
 
+def in_progress(ledger, ledger_path, timeout):
+    """True while a still-"started" call could be running in another process."""
+    if ledger.get("status") != "started":
+        return False
+    started = ledger.get("started") or ledger_path.stat().st_mtime
+    limit = ledger.get("timeout") or timeout
+    return time.time() - started < limit + 60
+
+
 def assess_layout(
     pdf,
     selected=None,
@@ -215,11 +229,12 @@ def assess_layout(
             review = validate_review(json.loads(result_path.read_text()), sampled)
             cache_hit = True
         else:
-            if ledger and not retry:
+            if ledger and not retry and in_progress(ledger, ledger_path, timeout):
                 raise RuntimeError(
-                    "Previous layout call did not complete. Inspect "
+                    "Another layout call for this PDF started recently and may still be "
+                    "running. Wait for it, or inspect "
                     + str(ledger_path)
-                    + "; use inspect --retry explicitly or --layout-review local."
+                    + " and use inspect --retry to call again."
                 )
             command_name = codex or provider
             if not shutil.which(command_name):
@@ -265,6 +280,8 @@ def assess_layout(
             prompt = prompt_with_images(provider, prompt, images)
             entry = {
                 "status": "started",
+                "started": time.time(),
+                "timeout": timeout,
                 "attempts": (ledger or {}).get("attempts", 0) + 1,
                 "sampled_pages": sampled,
                 "command": command,
@@ -301,6 +318,9 @@ def assess_layout(
                     "Layout preflight stopped before OCR: " + str(exc)
                 ) from exc
             finally:
+                # Cancelled (KeyboardInterrupt/SIGTERM): nothing is running any more.
+                if entry["status"] == "started":
+                    entry["status"] = "interrupted"
                 ledger_path.write_text(json.dumps(entry, ensure_ascii=False, indent=2))
     elif reviewer != "local":
         raise ValueError("Unknown layout reviewer")

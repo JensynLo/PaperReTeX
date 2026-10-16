@@ -385,7 +385,8 @@ def main(argv=None):
     i.add_argument(
         "--retry",
         action="store_true",
-        help="Explicitly retry a failed preflight call; completed calls remain cached.",
+        help="Call again even if another call for this PDF looks in progress; "
+        "completed calls remain cached and failed calls always retry.",
     )
     e = sub.add_parser(
         "evaluate", help="Compare original and compiled PDFs page by page."
