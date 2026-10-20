@@ -5,9 +5,9 @@
 
 ## 分支
 
-- `main`：对外的项目代码与 README。功能改动先提交到 `main`。
-- `dev`：在 `main` 之上多一个个人工具提交。`main` 前进后在 `dev` 上执行
-  `git merge main` 跟上；不要把 `dev` 合回 `main`，否则个人文件会带进去。
+- `dev`：日常工作分支，平时一直留在这里。比 `main` 多个人工具、本文件和 `.vscode/`。
+- `main`：对外的项目代码与 README。把 `dev` 上的功能提交 `git cherry-pick` 过去更新；
+  不要把 `dev` 整个合回 `main`，否则个人文件会带进去。
 
 ## 两台机器
 
@@ -16,12 +16,19 @@
 | mac                           | 编辑代码、提交推送、tmux 控制、浏览器查看                  |
 | JensynPC（WSL，SSH 别名同名） | 运行、测试、启动服务；项目在 `~/PaperReTeX`，环境 `.venv/` |
 
-mac 上不装依赖、不跑测试。改动推送后在 JensynPC 上 `git pull`，核对提交号再运行：
+mac 上不装依赖、不跑测试。改动直接从 mac 工作区 rsync 到 JensynPC，不经过 Git；
+排除 `.git` 和 `.gitignore` 中的内容（`.venv`、`samples/`、`output/` 等），不用 `--delete`。
+先预览，再同步，核对校验值后运行：
 
 ```sh
-ssh JensynPC 'cd ~/PaperReTeX && git pull --ff-only && git log --oneline -1'
+rsync -avzn --checksum --exclude=.git --filter=':- .gitignore' ~/projects/PaperReTeX/ JensynPC:PaperReTeX/
+rsync -az   --checksum --exclude=.git --filter=':- .gitignore' ~/projects/PaperReTeX/ JensynPC:PaperReTeX/
+git ls-files -z | xargs -0 shasum -a 256 | shasum -a 256
+git ls-files -z | ssh JensynPC 'cd ~/PaperReTeX && xargs -0 sha256sum | sha256sum'
 ssh JensynPC 'cd ~/PaperReTeX && .venv/bin/python -m pytest -q'
 ```
+
+JensynPC 上的 `.git` 不跟着同步，那边的 `git status` 不代表当前代码版本。
 
 `samples/` 下的四篇样例 PDF（EMS、Kobsik、Light-SQ、ResFit）不在 Git 中，只在
 JensynPC 上；`scripts/benchmark.py`、`scripts/reverse_samples.py` 和
