@@ -92,8 +92,8 @@ flowchart LR
 
 ## Demo results
 
-The demo GIF comes from a full run on _Attention Is All You Need_ (15 pages) on an
-Apple M2 laptop with Codex CLI as the reviewer:
+The demo GIF comes from a full run on _Attention Is All You Need_ (15 pages) with
+Codex CLI as the reviewer:
 
 | Metric                                                             | Result                                                                           |
 | ------------------------------------------------------------------ | -------------------------------------------------------------------------------- |
@@ -240,7 +240,7 @@ files, so copy any hand edits elsewhere first.
 
 ## Web app
 
-For day-to-day use, run the local web app and keep it open:
+Run the local web app:
 
 ```sh
 python app.py --port 8765          # from a checkout; same as: paperretex serve --port 8765
@@ -265,9 +265,8 @@ whether Codex, Claude, XeLaTeX and the OCR runtimes were found.
   `~/.cache/paperretex/web/` (change it with `--workdir`) and are still listed after a
   restart; a job that was interrupted can be **resumed** and reuses finished stages.
 - **Cancel** stops the running command and the LLM CLI it started.
-- The server listens on `127.0.0.1` only. `--host 0.0.0.0` makes it reachable from other
-  computers **without any login**, so anyone who can reach it can spend your LLM quota;
-  add `--allow-host NAME:PORT` for the name they use to reach it.
+- The server listens on `127.0.0.1` only. `--host` exposes it **without any login**, so
+  anyone who can reach it can spend your LLM quota.
 - Start it from a shell where `codex`/`claude` and `xelatex` are on `PATH`.
 
 ## Output
@@ -309,16 +308,15 @@ python -m pytest -q                       # no real LLM or OCR calls
 python -m compileall -q src/paperretex scripts
 python scripts/format_project.py          # Ruff, Prettier, Taplo, shfmt
 python scripts/format_project.py --check
-python scripts/reverse_samples.py         # full reverse + evaluation on local samples/
 ```
 
 ```text
 app.py            starts the web app (python app.py --port 8765)
 src/paperretex/   CLI, web app, layout, OCR, formula review, LaTeX, translation, evaluation
-scripts/          runtime install, sample evaluation, formatting
+scripts/          runtime install, formatting
 tests/            automated tests
 docs/assets/      README media
-samples/, output/ local PDFs and results (git-ignored)
+output/           local results (git-ignored)
 ```
 
 ## Limitations

@@ -70,7 +70,7 @@ flowchart LR
 
 ## 示例效果
 
-上方 GIF 来自对 _Attention Is All You Need_（15 页）的完整运行，设备为 Apple M2 笔记本，复核使用 Codex CLI：
+上方 GIF 来自对 _Attention Is All You Need_（15 页）的完整运行，复核使用 Codex CLI：
 
 | 指标                                     | 结果                                                                          |
 | ---------------------------------------- | ----------------------------------------------------------------------------- |
@@ -205,7 +205,7 @@ paperretex translate output/paper/main-flat.tex --llm-provider claude -o output/
 
 ## 网页版
 
-日常使用可以启动本地网页服务，让它一直运行：
+启动本地网页服务：
 
 ```sh
 python app.py --port 8765          # 在源码目录运行；等同于 paperretex serve --port 8765
@@ -224,7 +224,7 @@ python app.py --port 8765          # 在源码目录运行；等同于 paperrete
 
 - 由于 OCR 和 LLM 复核开销较大，任务依次执行。任务保存在 `~/.cache/paperretex/web/`（可用 `--workdir` 修改），服务重启后仍会列出；中断的任务可以**续跑**，已完成的阶段会被复用。
 - **取消**会停止正在运行的命令及其启动的 LLM CLI。
-- 服务默认只监听 `127.0.0.1`。使用 `--host 0.0.0.0` 后其他电脑也能访问，但**没有登录验证**，能访问的人都会消耗你的 LLM 额度；对方使用的主机名需要用 `--allow-host 名称:端口` 加入白名单。
+- 服务默认只监听 `127.0.0.1`。`--host` 会让它在**没有登录验证**的情况下对外开放，能访问的人都会消耗你的 LLM 额度。
 - 请在 `codex`/`claude` 和 `xelatex` 都在 `PATH` 中的终端里启动。
 
 ## 输出
@@ -261,16 +261,15 @@ python -m pytest -q                       # 不调用真实 LLM 或 OCR
 python -m compileall -q src/paperretex scripts
 python scripts/format_project.py          # Ruff、Prettier、Taplo、shfmt
 python scripts/format_project.py --check
-python scripts/reverse_samples.py         # 对本地 samples/ 完整逆向并评测
 ```
 
 ```text
 app.py            启动网页版（python app.py --port 8765）
 src/paperretex/   CLI、网页版、版面、OCR、公式复核、LaTeX、翻译与评测
-scripts/          运行环境安装、样例评测、格式化
+scripts/          运行环境安装、格式化
 tests/            自动测试
 docs/assets/      README 使用的媒体文件
-samples/、output/ 本地 PDF 与结果（不加入 Git）
+output/           本地结果（不加入 Git）
 ```
 
 ## 当前限制

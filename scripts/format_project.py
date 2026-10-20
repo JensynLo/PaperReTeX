@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Format tracked project text with the same Ruff and Prettier as VS Code."""
+"""Format tracked project text with Ruff, Prettier, Taplo and shfmt."""
 
 import argparse
 import shutil
