@@ -126,6 +126,8 @@ def prose_spans(source):
                     "hspace": 1,
                     "end": 1,
                     "includegraphics": 1,
+                    "titlespacing": 4,
+                    "titleformat": 5,
                 }.get(base, 1)
                 n = 0
                 if base == "begin":
@@ -133,8 +135,27 @@ def prose_spans(source):
                     count = (
                         2
                         if env in {"minipage", "tabular", "longtable", "paracol"}
+                        else 4
+                        if env == "sourceframe"
                         else 1
                     )
+                if base in ("hbox", "vbox", "vtop"):
+                    # Box specification: \hbox to \textwidth{...}, \vbox spread 2pt{...}.
+                    # Protect it; the box content is walked as an ordinary group.
+                    spec = re.match(r"\s*(?:to|spread)\b[^{]*", source[j:b])
+                    if spec:
+                        i = j + spec.end()
+                        continue
+                # Register assignment such as \topskip=0pt; a command value is
+                # handled on the next iteration.
+                value = re.match(
+                    r"[ \t]*=[ \t]*[-+]?(?:\d+\.?\d*|\.\d+)?[ \t]*"
+                    r"(?:pt|bp|em|ex|mm|cm|in|sp|pc|dd|cc|mu)?",
+                    source[j:b],
+                )
+                if value:
+                    i = j + value.end()
+                    continue
                 if (
                     base
                     in {
@@ -421,6 +442,7 @@ def translate_project(
     schema_path = cache / "schema.json"
     schema_path.write_text(json.dumps(schema))
     all_values = {}
+    untranslated = []
     calls = 0
     for index, batch in enumerate(batches):
         key = hashlib.sha256(
@@ -486,7 +508,7 @@ def translate_project(
             if (
                 len(rows) != len(batch)
                 or set(values) != {i["id"] for i in batch}
-                or any(not isinstance(v, str) or not v.strip() for v in values.values())
+                or any(not isinstance(v, str) for v in values.values())
             ):
                 raise ValueError("Incomplete translation response")
         except (ValueError, KeyError, TypeError):
@@ -494,6 +516,12 @@ def translate_project(
             raise ValueError(
                 "Invalid translation response; cached separately, rerun to retry"
             )
+        # An empty answer (e.g. for a stray fragment such as "ib") keeps the
+        # source text instead of failing the batch; the report lists them.
+        for item in batch:
+            if not values[item["id"]].strip():
+                values[item["id"]] = item["text"]
+                untranslated.append(item)
         all_values.update(values)
     translated = apply_translations(
         source, spans, [all_values[str(i)] for i in range(len(spans))]
@@ -537,6 +565,7 @@ def translate_project(
         "codex_effort": codex_effort,
         "new_cli_calls": calls,
         "new_codex_calls": calls if provider == "codex" else 0,
+        "untranslated": untranslated,
         "compile": reports,
         "alignment": "source TeX blocks; original left, translation right",
     }

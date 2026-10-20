@@ -163,6 +163,13 @@ def test_literal_percent_in_math_is_not_comment():
         safe_math(r"50\\% hidden")
 
 
+def test_common_relations_are_allowed():
+    from paperretex.latex import safe_math
+
+    for value in (r"N\ll M", r"a\gg b", r"x\leqslant y", r"A\subsetneq B", r"p\prec q"):
+        assert safe_math(value) == value
+
+
 def test_failed_compile_does_not_leave_stale_pdf(tmp_path):
     import shutil
     import pytest

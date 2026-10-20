@@ -92,6 +92,7 @@ def test_isolated_formula_outside_paragraph_is_not_lost(tmp_path):
     pdf = tmp_path / "input.pdf"
     with fitz.open() as doc:
         p = doc.new_page(width=200, height=200)
+        p.insert_text((30, 50), "Let x denote a variable.")
         p.insert_text((30, 90), "x = 1")
         doc.save(pdf)
     ir = fixture_ir()
@@ -105,6 +106,123 @@ def test_isolated_formula_outside_paragraph_is_not_lost(tmp_path):
     assert [f["kind"] for f in formulas] == ["inline", "display"]
     assert regions[-1]["type"] == "equation"
     assert len({r["id"] for r in regions}) == len(regions)
+
+
+def test_offpage_paragraphs_and_formulas_do_not_stop_conversion(tmp_path, monkeypatch):
+    pdf = tmp_path / "input.pdf"
+    with fitz.open() as doc:
+        p = doc.new_page(width=200, height=200)
+        p.insert_text((30, 50), "Let x denote a variable.")
+        doc.save(pdf)
+    ir = fixture_ir()
+    visible = ir["page"][0]["pdf_paragraph"][0]
+    hidden = copy.deepcopy(visible)
+    # Review proofs repeat the next page's text below the visible page.
+    hidden["box"] = {"x": 30, "y": -300, "x2": 170, "y2": -290}
+    for comp in hidden["pdf_paragraph_composition"]:
+        for item in comp.values():
+            item["box"] = {"x": 55, "y": -300, "x2": 65, "y2": -290}
+            for c in item["pdf_character"]:
+                c["box"] = {"x": 55, "y": -300, "x2": 65, "y2": -290}
+    stray = copy.deepcopy(hidden["pdf_paragraph_composition"][1])
+    stray["pdf_formula"]["pdf_character"][0]["char_unicode"] = "y"
+    visible["pdf_paragraph_composition"].append(stray)
+    ir["page"][0]["pdf_paragraph"].append(hidden)
+    regions, formulas, warnings = normalize_ir(copy.deepcopy(ir), pdf, tmp_path)
+    # The off-page glyph is an invisible line of the visible paragraph.
+    assert len(regions) == 1 and [f["id"] for f in formulas] == ["f00001"]
+    assert regions[0]["text"] == "Let x denote a variable."
+    assert warnings == [
+        "page 1: ignored 1 invisible paragraph(s) and trimmed hidden lines from 1 "
+        "(clipped or off-page)."
+    ]
+    # Without the visibility check (rotated pages) the formula falls back to text.
+    monkeypatch.setattr("paperretex.babeldoc.VisibleText", lambda page: None)
+    regions, formulas, _ = normalize_ir(ir, pdf, tmp_path)
+    assert [f["id"] for f in formulas] == ["f00001"]
+    assert regions[0]["segments"][-1]["text"] == "y"
+
+
+def test_text_clipped_inside_a_pasted_figure_is_ignored(tmp_path):
+    # A figure pasted from Word: a Form XObject showing only its top half,
+    # while the manuscript text below stays in the file but is clipped away.
+    with fitz.open() as source:
+        page = source.new_page(width=200, height=200)
+        page.insert_text((30, 50), "Visible caption here")
+        page.insert_text((30, 150), "Hidden manuscript text")
+        words = {
+            line: [
+                c
+                for b in page.get_text("rawdict")["blocks"]
+                for l in b["lines"]
+                for s in l["spans"]
+                for c in s["chars"]
+                if (l["bbox"][1] < 100) == (line == "visible")
+            ]
+            for line in ("visible", "hidden")
+        }
+        pdf = tmp_path / "input.pdf"
+        with fitz.open() as doc:
+            target = doc.new_page(width=200, height=200)
+            target.show_pdf_page(
+                fitz.Rect(0, 0, 200, 100), source, 0, clip=fitz.Rect(0, 0, 200, 100)
+            )
+            doc.save(pdf)
+
+    def paragraph(chars):
+        boxes = [
+            {
+                "x": c["bbox"][0],
+                "y": 200 - c["bbox"][3],
+                "x2": c["bbox"][2],
+                "y2": 200 - c["bbox"][1],
+            }
+            for c in chars
+        ]
+        return {
+            "box": {
+                "x": min(b["x"] for b in boxes),
+                "y": min(b["y"] for b in boxes),
+                "x2": max(b["x2"] for b in boxes),
+                "y2": max(b["y2"] for b in boxes),
+            },
+            "layout_label": "plain text",
+            "unicode": "".join(c["c"] for c in chars),
+            "pdf_paragraph_composition": [
+                {
+                    "pdf_same_style_characters": {
+                        "pdf_character": [
+                            {
+                                "char_unicode": c["c"],
+                                "box": box,
+                                "pdf_style": {"font_id": "f1", "font_size": 11},
+                            }
+                            for c, box in zip(chars, boxes)
+                        ]
+                    }
+                }
+            ],
+        }
+
+    def run(*paragraphs):
+        ir = fixture_ir()
+        ir["page"][0]["pdf_paragraph"] = [paragraph(p) for p in paragraphs]
+        regions, _, warnings = normalize_ir(ir, pdf, tmp_path)
+        return [r["text"] for r in regions], warnings
+
+    texts, warnings = run(words["visible"], words["hidden"])
+    assert texts == ["Visible caption here"]
+    assert warnings == [
+        "page 1: ignored 1 invisible paragraph(s) and trimmed hidden lines from 0 "
+        "(clipped or off-page)."
+    ]
+    # BabelDOC can join a visible and a clipped line into one paragraph.
+    texts, warnings = run(words["hidden"] + words["visible"])
+    assert texts == ["Visible caption here"]
+    assert "trimmed hidden lines from 1" in warnings[0]
+    # A hidden copy lying exactly on the visible text: each glyph vouches once.
+    texts, _ = run(words["hidden"] + words["visible"], words["visible"])
+    assert texts == ["Visible caption here"]
 
 
 def test_review_cannot_omit_duplicate_or_inject():

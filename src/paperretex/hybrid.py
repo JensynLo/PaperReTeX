@@ -12,6 +12,7 @@ import statistics
 import time
 from .babeldoc import normalize_ir, render_overlays, context_crops
 from .formula_review import review_formulas
+from .fragments import fragment_groups, merge_fragments, review_fragments
 from .latex import emit_document, escape, safe_math
 from .preflight import assess_layout
 from .profiles import prepare_blocks
@@ -664,6 +665,26 @@ def convert_hybrid(args):
         regions, formulas, warnings = normalize_ir(
             json.loads(irpath.read_text()), pdf, root, selected
         )
+        groups = fragment_groups(regions)
+        fragment_review = {"groups": 0, "merged": 0}
+        if groups:
+            stage(provider + "-fragment-review")
+            fragment_verdicts, fragment_review = review_fragments(
+                groups,
+                regions,
+                pdf,
+                root,
+                command,
+                args.formula_timeout,
+                provider=provider,
+                codex_effort=args.codex_effort,
+            )
+            merged = merge_fragments(regions, formulas, groups, fragment_verdicts)
+            fragment_review["merged"] = len(merged)
+            save(
+                root / "fragment-verdicts.json",
+                [dict(g, verdict=fragment_verdicts[g["id"]]) for g in groups],
+            )
         regions, order_warnings = prepare_blocks(regions, plan)
         hide_unemitted(regions, formulas)
         active = [f for f in formulas if not f.get("skipped")]
@@ -768,6 +789,7 @@ def convert_hybrid(args):
             "layout": plan["geometry"],
             "formula_ocr_model": "UniMERNet-small (MinerU 2.7.1)",
             "formula_review": review,
+            "fragment_review": fragment_review,
             "detected_formulas": len(formulas),
             "skipped_formulas": len(formulas) - len(active),
             "inline_formulas": sum(f["kind"] == "inline" for f in formulas),

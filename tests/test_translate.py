@@ -30,6 +30,24 @@ We use $x_i=2$ and \emph{an example}.\label{sec:example}
     assert r"\section{" in result
 
 
+def test_layout_code_from_hybrid_frames_is_not_prose():
+    source = r"""\documentclass{article}
+\begin{document}
+\titlespacing*{\section}{0pt}{16.88bp}{14.55bp}
+\titleformat{\section}[hang]{\bfseries}{\thesection.}{.5em}{}
+\topskip=0pt\baselineskip=0pt\lineskip=0pt\lineskiplimit=0pt
+\par\noindent\hbox to \textwidth{%
+\begin{sourceframe}{138.61}{236.25}{p1-b1-left}%
+Left column prose.
+\end{sourceframe}%
+\hfil%
+\vbox spread 2pt{Right column prose.}%
+}\par
+\end{document}"""
+    texts = [source[a:b] for a, b in prose_spans(source)]
+    assert texts == ["Left column prose.", "Right column prose."]
+
+
 def test_bilingual_sync_and_float_conversion():
     source = r"""\documentclass[10pt,twocolumn]{article}
 \usepackage[a4paper]{geometry}
@@ -89,6 +107,43 @@ def test_resume_uses_validated_cache_and_preserves_input(tmp_path, monkeypatch):
     assert tex.read_text() == original
     assert (out / "translated.pdf").exists() and (out / "bilingual.pdf").exists()
     assert "$x=1$" in (out / "main.tex").read_text()
+
+
+def test_empty_translation_keeps_source_and_is_reported(tmp_path, monkeypatch):
+    import json
+    from pathlib import Path
+    from types import SimpleNamespace
+    from paperretex.translate import translate_project
+
+    tex = tmp_path / "source" / "main.tex"
+    tex.parent.mkdir()
+    tex.write_text(
+        r"\documentclass{article}\begin{document}"
+        "\nOur method works.\n\n\\noindent ib\n\\end{document}"
+    )
+
+    def run(command, input, **kwargs):
+        rows = json.loads(input.split("\n", 1)[1])
+        answer = {"Our method works.": "我们的方法有效。", "ib": " "}
+        Path(command[command.index("--output-last-message") + 1]).write_text(
+            json.dumps({
+                "translations": [
+                    {"id": r["id"], "text": answer[r["text"]]} for r in rows
+                ]
+            })
+        )
+        return SimpleNamespace(returncode=0, stdout="test")
+
+    def compile(project):
+        (project / "main.pdf").write_bytes(b"fake PDF fixture")
+        return {"status": "passed"}
+
+    monkeypatch.setattr("paperretex.translate.subprocess.run", run)
+    monkeypatch.setattr("paperretex.cli.compile_project", compile)
+    report = translate_project(tex, tmp_path / "out")
+    assert report["untranslated"] == [{"id": "1", "text": "ib"}]
+    body = (tmp_path / "out" / "main.tex").read_text()
+    assert "我们的方法有效。" in body and "\\noindent ib" in body
 
 
 def test_paragraph_split_keeps_environments_and_groups():

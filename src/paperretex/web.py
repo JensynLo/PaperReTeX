@@ -426,6 +426,17 @@ class JobManager:
                         outputs=available(folder),
                         finished=time.time(),
                     )
+                translation = folder / "translate" / "translation-report.json"
+                kept = (
+                    len(json.loads(translation.read_text()).get("untranslated", []))
+                    if translation.exists()
+                    else 0
+                )
+                if kept:
+                    job["warnings"].append(
+                        "%d fragment(s) were left untranslated; see "
+                        "translate/translation-report.json." % kept
+                    )
         self.update(
             job,
             status="done",

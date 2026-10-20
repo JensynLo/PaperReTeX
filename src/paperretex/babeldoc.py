@@ -1,13 +1,161 @@
 """Normalize BabelDOC's layout IR into auditable regions and formula crops."""
 
-from collections import Counter
+from collections import Counter, defaultdict
 import re
+import unicodedata
 from pathlib import Path
 import fitz
 
 
 def rect(box, height):
     return fitz.Rect(box["x"], height - box["y2"], box["x2"], height - box["y"])
+
+
+class VisibleText:
+    """Glyphs MuPDF actually shows on a page, for checking BabelDOC's characters.
+
+    BabelDOC keeps the original drawing (and its clipping) when translating in
+    place, so it reports text that a clip path, a Form XObject's bounds or the
+    page edge hides. Re-typesetting would print it; e.g. figures pasted from Word
+    can carry the whole manuscript page around the visible picture.
+    """
+
+    CELL = 12
+
+    def __init__(self, page):
+        self.cells = defaultdict(list)
+        self.used = set()
+        n = 0
+        for block in page.get_text("rawdict")["blocks"]:
+            for line in block.get("lines", []):
+                for span in line["spans"]:
+                    for c in span["chars"]:
+                        if not c["c"].strip():
+                            continue
+                        box = fitz.Rect(c["bbox"])
+                        glyph = unicodedata.normalize("NFKC", c["c"]).lower()
+                        n += 1
+                        for x in range(
+                            int(box.x0 // self.CELL), int(box.x1 // self.CELL) + 1
+                        ):
+                            for y in range(
+                                int(box.y0 // self.CELL), int(box.y1 // self.CELL) + 1
+                            ):
+                                self.cells[x, y].append((n, box, glyph))
+
+    def match(self, char, height):
+        """An unclaimed visible glyph of the same character at this position."""
+        value = unicodedata.normalize("NFKC", char.get("char_unicode") or "").lower()
+        box = rect(char["box"], height)
+        centre = fitz.Point((box.x0 + box.x1) / 2, (box.y0 + box.y1) / 2)
+        cell = (int(centre.x // self.CELL), int(centre.y // self.CELL))
+        for n, other, glyph in self.cells[cell]:
+            if (
+                n not in self.used
+                and other.contains(centre)
+                and (value in glyph or glyph in value)
+            ):
+                return n
+        return None
+
+    def lines(self, para, height):
+        out = []
+        for comp in para.get("pdf_paragraph_composition", []):
+            for c in characters(comp):
+                if not c.get("box"):
+                    continue
+                box = rect(c["box"], height)
+                middle = (box.y0 + box.y1) / 2
+                size = (c.get("pdf_style") or {}).get("font_size") or 10
+                if not out or abs(middle - out[-1][0]) > size * 0.6:
+                    out.append([middle, []])
+                out[-1][1].append(c)
+        return [chars for _, chars in out]
+
+    def score(self, para, height):
+        glyphs = [
+            c
+            for chars in self.lines(para, height)
+            for c in chars
+            if (c.get("char_unicode") or "").strip()
+        ]
+        if not glyphs:
+            return 1.0
+        return sum(self.match(c, height) is not None for c in glyphs) / len(glyphs)
+
+    def page_paragraphs(self, paras, height):
+        """visible_part() for every paragraph; each visible glyph vouches once.
+
+        A hidden copy can sit exactly on visible text (a pasted manuscript page
+        behind its final version), so the best-matching paragraphs claim their
+        glyphs first and an aligned duplicate finds them taken.
+        """
+        order = sorted(range(len(paras)), key=lambda i: -self.score(paras[i], height))
+        result = {}
+        for i in order:
+            result[i] = self.visible_part(paras[i], height)
+        return [result[i] for i in range(len(paras))]
+
+    def visible_part(self, para, height):
+        """The paragraph without its invisible lines; None if no line is visible.
+
+        BabelDOC may join visible and clipped lines of one Form XObject into a
+        paragraph, so the decision is per line. A line needs most of its glyphs
+        visible: a hidden copy can coincide with a few visible glyphs by chance.
+        """
+        comps = para.get("pdf_paragraph_composition", [])
+        keep = set()
+        lines = self.lines(para, height)
+        for chars in lines:
+            glyphs = [c for c in chars if (c.get("char_unicode") or "").strip()]
+            claimed = []
+            for c in glyphs:
+                n = self.match(c, height)
+                if n is not None:
+                    claimed.append(n)
+                    self.used.add(n)
+            if glyphs and len(claimed) >= len(glyphs) / 2:
+                keep.update(id(c) for c in chars)
+            else:
+                self.used.difference_update(claimed)
+        if len(keep) == sum(len(chars) for chars in lines):
+            return para
+        if not keep:
+            return None
+        kept = []
+        for comp in comps:
+            if comp.get("pdf_formula"):
+                chars = [c for c in characters(comp) if c.get("box")]
+                if chars and sum(id(c) in keep for c in chars) * 2 >= len(chars):
+                    kept.append(comp)
+                continue
+            for key, value in comp.items():
+                if isinstance(value, dict) and "pdf_character" in value:
+                    chars = [c for c in characters(comp) if id(c) in keep]
+                    if chars:
+                        kept.append({key: dict(value, pdf_character=chars)})
+                    break
+                if key == "pdf_character":
+                    chars = [c for c in characters(comp) if id(c) in keep]
+                    if chars:
+                        kept.append({key: chars})
+                    break
+            else:
+                kept.append(comp)
+        boxes = [c["box"] for comp in kept for c in characters(comp) if c.get("box")]
+        if not boxes:
+            return None
+        return dict(
+            para,
+            pdf_paragraph_composition=kept,
+            unicode=None,
+            box={
+                "x": min(b["x"] for b in boxes),
+                "y": min(b["y"] for b in boxes),
+                "x2": max(b["x2"] for b in boxes),
+                "y2": max(b["y2"] for b in boxes),
+            },
+        )
 
 
 def characters(comp):
@@ -123,8 +271,23 @@ def normalize_ir(ir, pdf, root, selected=None):
                 else "unknown"
             )
             layouts = page_ir.get("page_layout", [])
-            for ordinal, para in enumerate(page_ir.get("pdf_paragraph", []), 1):
+            # Rotated pages use another coordinate frame in MuPDF; skip the check.
+            paragraphs = page_ir.get("pdf_paragraph", [])
+            visible = VisibleText(page) if page.rotation == 0 else None
+            shown_parts = (
+                visible.page_paragraphs(paragraphs, height) if visible else paragraphs
+            )
+            hidden = trimmed = 0
+            for ordinal, (para, shown) in enumerate(zip(paragraphs, shown_parts), 1):
                 box = rect(para["box"], height)
+                # Text outside the page or clipped away is never shown; skip it.
+                if (box & page.rect).is_empty or shown is None:
+                    hidden += 1
+                    continue
+                if shown is not para:
+                    trimmed += 1
+                    para = shown
+                    box = rect(para["box"], height)
                 label = (para.get("layout_label") or "text").lower()
                 rid = "p%03d-r%04d" % (index + 1, ordinal)
                 comps = para.get("pdf_paragraph_composition", [])
@@ -197,7 +360,14 @@ def normalize_ir(ir, pdf, root, selected=None):
                                 fbox |= rect(visual, height)
                         fbox = (fbox + (-1.5, -1.5, 1.5, 1.5)) & page.rect
                         if fbox.is_empty:
-                            raise ValueError("Empty formula crop: " + fid)
+                            # Off-page glyphs in a visible paragraph: keep as text.
+                            chars = formula.get("pdf_character", [])
+                            if chars:
+                                region["segments"].append({
+                                    "text": text_of(chars),
+                                    **style_of(chars, fonts, para.get("pdf_style")),
+                                })
+                            continue
                         crop = "formula-crops/" + fid + ".png"
                         page.get_pixmap(
                             matrix=fitz.Matrix(4, 4), clip=fbox, alpha=False
@@ -284,6 +454,12 @@ def normalize_ir(ir, pdf, root, selected=None):
                     })
                     region.update(segments=[{"formula_id": fid}], formula_ids=[fid])
                 regions.append(region)
+            if hidden or trimmed:
+                warnings.append(
+                    "page %d: ignored %d invisible paragraph(s) and trimmed hidden "
+                    "lines from %d (clipped or off-page)."
+                    % (index + 1, hidden, trimmed)
+                )
             # BabelDOC deliberately leaves isolated display math outside paragraphs.
             # Recover those layout boxes as separate expressions, not PDF assets.
             for ordinal, layout in enumerate(layouts, 1):
