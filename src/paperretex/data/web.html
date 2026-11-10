@@ -201,9 +201,15 @@ details.log pre { margin: 8px 0 0; max-height: 260px; overflow: auto; background
       </div>
       <div class="row">
         <div class="field">
+          <label for="formulaJobs" data-i18n="formulaJobs"></label>
+          <input type="number" id="formulaJobs" min="1" max="16">
+        </div>
+        <div class="field">
           <label for="formulaTimeout" data-i18n="formulaTimeout"></label>
           <input type="number" id="formulaTimeout" min="60" max="7200" step="30">
         </div>
+      </div>
+      <div class="row">
         <div class="field">
           <label for="translateTimeout" data-i18n="translateTimeout"></label>
           <input type="number" id="translateTimeout" min="60" max="7200" step="30">
@@ -237,7 +243,7 @@ const T = {
     auto: "Auto-detect", single: "Single column", double: "Two columns", advanced: "Advanced options",
     effort: "Codex reasoning effort", effortDefault: "CLI default", layoutReview: "Layout check",
     reviewLlm: "LLM preflight", reviewLocal: "Local geometry only", batchSize: "Formulas per review call",
-    rounds: "Review rounds", formulaTimeout: "Review timeout (s)", translateTimeout: "Translation timeout (s)",
+    rounds: "Review rounds", formulaJobs: "Parallel review calls", formulaTimeout: "Review timeout (s)", translateTimeout: "Translation timeout (s)",
     batchChars: "Translation chunk (characters)", batchCharsHint: "Larger chunks mean fewer LLM calls.",
     start: "Start", jobs: "Jobs", jobsHint: "Jobs run one at a time and are kept after a restart.",
     empty: "No jobs yet. Drop a PDF on the left to start.",
@@ -258,7 +264,7 @@ const T = {
     auto: "自动判断", single: "单栏", double: "双栏", advanced: "高级选项",
     effort: "Codex 推理强度", effortDefault: "沿用 CLI 配置", layoutReview: "版式预检",
     reviewLlm: "LLM 预检", reviewLocal: "仅本地几何判断", batchSize: "每次复核的公式数",
-    rounds: "复核轮数", formulaTimeout: "复核超时（秒）", translateTimeout: "翻译超时（秒）",
+    rounds: "复核轮数", formulaJobs: "并行复核调用数", formulaTimeout: "复核超时（秒）", translateTimeout: "翻译超时（秒）",
     batchChars: "翻译分批（字符数）", batchCharsHint: "分批越大，LLM 调用次数越少。",
     start: "开始", jobs: "任务", jobsHint: "任务依次执行，服务重启后仍会保留。",
     empty: "还没有任务。把 PDF 拖到左侧即可开始。",
@@ -334,6 +340,7 @@ function options() {
     layout_review: $("layoutReview").value,
     formula_batch_size: Number($("batchSize").value),
     formula_review_rounds: Number($("rounds").value),
+    formula_jobs: Number($("formulaJobs").value),
     formula_timeout: Number($("formulaTimeout").value),
     batch_chars: Number($("batchChars").value),
     translate_timeout: Number($("translateTimeout").value),
@@ -353,6 +360,7 @@ function loadOptions() {
   $("layoutReview").value = o.layout_review;
   $("batchSize").value = o.formula_batch_size;
   $("rounds").value = String(o.formula_review_rounds);
+  $("formulaJobs").value = o.formula_jobs;
   $("formulaTimeout").value = o.formula_timeout;
   $("batchChars").value = o.batch_chars;
   $("translateTimeout").value = o.translate_timeout;

@@ -88,14 +88,14 @@ def test_resume_uses_validated_cache_and_preserves_input(tmp_path, monkeypatch):
 
         Path(path).write_text(
             json.dumps({
-                "translations": [{"id": r["id"], "text": "译文"} for r in rows]
+                "translations": [{"id": r["id"], "text": "译\u200b文"} for r in rows]
             })
         )
         return SimpleNamespace(returncode=0, stdout="test")
 
     def compile(project):
         (project / "main.pdf").write_bytes(b"fake PDF fixture")
-        return {"status": "passed"}
+        return {"status": "passed_with_missing_glyphs", "missing_glyphs": ["fixture"]}
 
     monkeypatch.setattr("paperretex.translate.subprocess.run", run)
     monkeypatch.setattr("paperretex.cli.compile_project", compile)
@@ -106,6 +106,9 @@ def test_resume_uses_validated_cache_and_preserves_input(tmp_path, monkeypatch):
     assert report["new_codex_calls"] == 0 and len(calls) == 1
     assert tex.read_text() == original
     assert (out / "translated.pdf").exists() and (out / "bilingual.pdf").exists()
+    assert "\u200b" not in (out / "main.tex").read_text()
+    assert "\u200b" not in (out / "bilingual" / "main.tex").read_text()
+    assert report["compile"]["translated"]["status"] == "passed_with_missing_glyphs"
     assert "$x=1$" in (out / "main.tex").read_text()
 
 

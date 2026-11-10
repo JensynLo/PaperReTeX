@@ -67,6 +67,7 @@ DEFAULTS = {
     "layout_review": "llm",
     "formula_batch_size": 36,
     "formula_review_rounds": 2,
+    "formula_jobs": 4,
     "formula_timeout": 600,
     "batch_chars": 18000,
     "translate_timeout": 900,
@@ -119,6 +120,7 @@ def clean_options(raw):
         "layout_review": o["layout_review"],
         "formula_batch_size": integer("formula_batch_size", 1, 48),
         "formula_review_rounds": integer("formula_review_rounds", 1, 2),
+        "formula_jobs": integer("formula_jobs", 1, 16),
         "formula_timeout": integer("formula_timeout", 60, 7200),
         "batch_chars": integer("batch_chars", 2000, 60000),
         "translate_timeout": integer("translate_timeout", 60, 7200),
@@ -144,6 +146,8 @@ def convert_args(o, resume=False):
         str(o["formula_review_rounds"]),
         "--formula-timeout",
         str(o["formula_timeout"]),
+        "--formula-jobs",
+        str(o.get("formula_jobs", 4)),  # jobs saved before this option existed
     ]
     if o["pages"]:
         args += ["--pages", o["pages"]]
@@ -185,17 +189,21 @@ def read_progress(line, job):
             stage = "ocr"
         elif name.endswith("formula-review"):
             stage = "review"
-            job["review_round"] = 1
+            job.update(review_round=1, review_done=0)
         elif name.endswith("formula-context-review"):
             stage = "review"
-            job["review_round"] = 2
+            job.update(review_round=2, review_done=0)
         elif name == "region-tex-and-assembly":
             stage = "assemble"
     match = re.search(r"batch (\d+)/(\d+)", line)
     if match and ("Formula review" in line or "Translating" in line):
         done, total = int(match[1]), int(match[2])
-        if "completed" in line or "cached" in line or "Translating" in line:
-            job["stage_fraction"] = (done - ("Translating" in line)) / total
+        if "Translating" in line:
+            job["stage_fraction"] = (done - 1) / total
+        elif "completed" in line or "cached" in line:
+            # Concurrent review batches finish out of order: count them.
+            job["review_done"] = job.get("review_done", 0) + 1
+            job["stage_fraction"] = job["review_done"] / total
         job["detail"] = line.strip()[:160]
     if stage and stage != job.get("stage"):
         job.update(stage=stage, stage_fraction=0, detail="")

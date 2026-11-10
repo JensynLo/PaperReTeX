@@ -58,6 +58,7 @@ def test_options_are_whitelisted():
         {"llm_provider": "other"},
         {"llm_provider": "claude", "codex_effort": "high"},
         {"formula_batch_size": 100},
+        {"formula_jobs": 17},
         {"target": "x" * 41},
         {"extra": "--evil"},
     ):
@@ -78,9 +79,12 @@ def test_cli_arguments_follow_options():
 def test_progress_lines_drive_stages():
     job = {"options": {"translate": True}, "stage": "layout"}
     read_progress("Hybrid: codex-formula-review\n", job)
-    read_progress(
-        "Formula review: first-round batch 3/6 (36 expressions) completed\n", job
-    )
+    # Concurrent batches finish out of order; progress counts completions.
+    for n in (4, 1, 6):
+        read_progress(
+            "Formula review: first-round batch %d/6 (36 expressions) completed\n" % n,
+            job,
+        )
     assert job["stage"] == "review" and job["stage_fraction"] == 0.5
     read_progress("Hybrid: codex-formula-context-review\n", job)
     assert job["review_round"] == 2 and 0 < job["progress"] < 1

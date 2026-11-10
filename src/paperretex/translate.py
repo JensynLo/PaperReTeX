@@ -237,6 +237,7 @@ def escape_text(s):
             "~": r"\textasciitilde{}",
         }.get(c, c)
         for c in s
+        if c != "\u200b"
     )
 
 
@@ -542,10 +543,10 @@ def translate_project(
     for name, project in [("translated", out), ("bilingual", comparison)]:
         for _ in range(2):
             report = compile_project(project)
-            if report["status"] != "passed":
+            if not report["status"].startswith("passed"):
                 break
         reports[name] = report
-        if report["status"] == "passed":
+        if report["status"].startswith("passed"):
             shutil.copyfile(project / "main.pdf", out / (name + ".pdf"))
         else:
             (out / (name + ".pdf")).unlink(missing_ok=True)
@@ -572,7 +573,7 @@ def translate_project(
     (out / "translation-report.json").write_text(
         json.dumps(report, ensure_ascii=False, indent=2), encoding="utf-8"
     )
-    if any(r["status"] != "passed" for r in reports.values()):
+    if any(not r["status"].startswith("passed") for r in reports.values()):
         raise RuntimeError(
             "Translation saved but PDF compilation failed; inspect translation-report.json"
         )

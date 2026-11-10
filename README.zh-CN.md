@@ -64,7 +64,7 @@ flowchart LR
 1. **预检**：最多抽取 6 页，让所选 CLI 判断版式；使用 `--layout-review local` 时只做本地几何判断。
 2. **BabelDOC 0.6.4**：提取区域、段落、字体和公式范围，并把图表保留为矢量资源。
 3. **MinerU 2.7.1 的 UniMERNet-small**：只对公式裁图做 OCR。位于矢量图或页面装饰中的片段会被跳过，因为这些文字保留在图形里。
-4. **LLM 复核**：分批检查所有检测到的表达式，默认每次调用 36 个。第二轮只处理不确定项，用红框标出目标，并附上附近正文。
+4. **LLM 复核**：分批检查所有检测到的表达式，默认每次调用 36 个、4 个调用并行。第二轮只处理不确定项，用红框标出目标，并附上附近正文。
 5. **组装 LaTeX**：按原文的页面、栏和跨栏浮动体组织源码。
 6. **XeLaTeX 编译**后，**评测**逐页与原文比较。
 
@@ -197,6 +197,7 @@ paperretex translate output/paper/main-flat.tex --llm-provider claude -o output/
 | `--formula-batch-size`         | `36`     | 每次复核调用的表达式数（1–48）                                        |
 | `--formula-review-rounds`      | `2`      | 设为 `1` 时不做不确定项的第二轮上下文复核                             |
 | `--formula-timeout`            | `600`    | 每次复核调用的超时秒数                                                |
+| `--formula-jobs`               | `4`      | 并行的复核调用数（1–16），设为 `1` 时逐批串行                         |
 | `--resume`                     | 关闭     | 在同一输出目录继续被中断的运行                                        |
 | `--retry-formulas`             | 关闭     | 显式重试失败的复核批次（需配合 `--resume`）                           |
 | `--mode`                       | `hybrid` | `semantic`、`reflow`、`layout`、`source` 是旧流程或对照流程           |
