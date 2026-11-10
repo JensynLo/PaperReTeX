@@ -23,7 +23,7 @@ def main():
     formulas = [
         f
         for f in json.loads((root / "formulas.json").read_text())
-        if not f.get("skipped")
+        if not f.get("skipped") and not f.get("local_text")
     ]
     if not formulas:
         (root / "formula-ocr.json").write_text("[]")

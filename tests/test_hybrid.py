@@ -5,12 +5,15 @@ import fitz
 import pytest
 from PIL import Image
 from paperretex.babeldoc import normalize_ir, text_of, source_blue
-from paperretex.formula_review import validate_review, review_formulas
+from paperretex.formula_review import batch_contexts, validate_review, review_formulas
 from paperretex.hybrid import (
     apply_formulas,
+    bibliography_regions,
+    citation_formulas,
     emit_regions,
     hide_unemitted,
     prepare_structure,
+    review_contexts,
 )
 from paperretex.latex import safe_math
 
@@ -311,7 +314,7 @@ def test_review_batches_cache_and_missing_ids_fail(tmp_path, monkeypatch):
 
     def run(command, **kwargs):
         prompt = kwargs["input"]
-        payload = json.loads(prompt[prompt.index("[{") :])
+        payload = json.loads(prompt[prompt.index('{"contexts"') :])["formulas"]
         calls.append(payload)
         result = Path(command[command.index("--output-last-message") + 1])
         result.write_text(
@@ -346,7 +349,7 @@ def _parallel_fixture(tmp_path, count):
 
 def _answer(command, kwargs):
     prompt = kwargs["input"]
-    payload = json.loads(prompt[prompt.index("[{") :])
+    payload = json.loads(prompt[prompt.index('{"contexts"') :])["formulas"]
     result = Path(command[command.index("--output-last-message") + 1])
     result.write_text(
         json.dumps({
@@ -392,7 +395,9 @@ def test_parallel_failure_keeps_finished_batches_and_starts_no_more(
     both = threading.Barrier(2, timeout=10)
 
     def run(command, **kwargs):
-        payload = json.loads(kwargs["input"][kwargs["input"].index("[{") :])
+        payload = json.loads(kwargs["input"][kwargs["input"].index('{"contexts"') :])[
+            "formulas"
+        ]
         started.append(payload[0]["id"])
         if payload[0]["id"] in "01":
             both.wait()  # batch 1 is in flight when batch 0 fails
@@ -1001,3 +1006,86 @@ def test_small_text_markers_are_superscripts_and_lines_are_kept():
         r"gradients\textsuperscript{4}",
         r"\texttt{x@y.com}",
     ]
+
+
+def test_bibliography_regions_follow_references_heading():
+    def r(rid, typ, text):
+        return {"id": rid, "type": typ, "text": text}
+
+    regions = [
+        r("a", "paragraph", "Body with x."),
+        r("b", "heading", "7 References"),
+        r("c", "paragraph", "[TCC*24] Tang J. ..."),
+        r("d", "paragraph", "[TD21] Teed Z. ..."),
+        r("e", "heading", "A Appendix"),
+        r("f", "paragraph", "More math."),
+    ]
+    assert bibliography_regions(regions) == {"c", "d"}
+    regions[1]["text"] = "REFERENCES"
+    assert bibliography_regions(regions) == {"c", "d"}
+    regions[1]["text"] = "References to prior work"
+    assert bibliography_regions(regions) == set()
+
+
+def test_review_contexts_are_short_and_shared_within_a_batch():
+    before = "word " * 60
+    after = " more" * 60
+    regions = [
+        {
+            "id": "p001-r0001",
+            "segments": [
+                {"text": before},
+                {"formula_id": "f1"},
+                {"text": " and "},
+                {"formula_id": "f2"},
+                {"text": after},
+            ],
+        }
+    ]
+    formulas = [
+        {"id": "f1", "native_text": "x_1", "context": "long" * 400},
+        {"id": "f2", "native_text": "y^2", "context": "long" * 400},
+    ]
+    review_contexts(regions, formulas, radius=40)
+    for f in formulas:
+        assert len(f["context"]) <= 40 * 2 + 10
+    snippets, refs = batch_contexts(formulas)
+    assert refs == {"f1": "c1", "f2": "c1"}
+    (text,) = snippets.values()
+    assert "⟦f1⟧x_1⟦/f1⟧ and ⟦f2⟧y^2⟦/f2⟧" in text
+    assert text.startswith("…") and text.endswith("…")
+    # A formula reviewed alone still gets its own marked window.
+    snippets, refs = batch_contexts(formulas[1:])
+    assert "⟦f2⟧y^2⟦/f2⟧" in snippets[refs["f2"]]
+    assert "⟦f1⟧" not in snippets[refs["f2"]]
+
+
+def test_citation_fragments_are_found_in_paragraph_text():
+    def para(rid, *parts):
+        return {
+            "id": rid,
+            "segments": [
+                {"formula_id": p[1:]} if p.startswith("$") else {"text": p}
+                for p in parts
+            ],
+        }
+
+    formulas = {
+        fid: {"id": fid, "kind": "inline", "native_text": text}
+        for fid, text in {
+            "k1": "[", "k2": "24a]", "n1": "[12],", "s1": "360 [", "s2": "25]",
+            "i1": "0,2]", "p1": "[1, 2]", "b1": "[1, 2]", "m1": "[", "m2": "]",
+            "x1": "x [12]", "d1": "[3, 4, 5]",
+        }.items()
+    }
+    formulas["b1"]["source_blue"] = True
+    formulas["d1"]["kind"] = "display"
+    regions = [
+        para("a", "PF3plat ", "$k1", "HJS*", "$k2", " proposes a strategy."),
+        para("b", "As shown in ", "$n1", " and Mip-NeRF ", "$s1", "BMV*", "$s2", "."),
+        para("c", "values in [", "$i1", " and ", "$p1", " versus ", "$b1", "."),
+        para("d", "the pose ", "$m1", "R|t", "$m2", " and ", "$x1", " here"),
+        para("e", "$d1"),
+    ]
+    found = citation_formulas(regions, list(formulas.values()))
+    assert found == {"k1", "k2", "n1", "s1", "s2", "b1"}
