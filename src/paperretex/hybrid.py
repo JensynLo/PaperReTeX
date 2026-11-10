@@ -315,6 +315,118 @@ def hide_unemitted(regions, formulas):
     return regions
 
 
+REFERENCES_HEADING = re.compile(
+    r"(?:[0-9IVX]+\.?\s+)?(?:references|bibliography|literature cited)",
+    re.IGNORECASE,
+)
+
+
+def bibliography_regions(regions):
+    """IDs of paragraphs between a References heading and the next heading."""
+    found = set()
+    references = False
+    for r in regions:
+        if r.get("merged_into"):
+            continue
+        if r["type"] == "heading":
+            references = bool(REFERENCES_HEADING.fullmatch(r["text"].strip()))
+        elif references and r["type"] == "paragraph":
+            found.add(r["id"])
+    return found
+
+
+def paragraph_spans(region, mapping):
+    """Linear paragraph text with the [start, end) span of each formula in it."""
+    text = ""
+    spans = []
+    for segment in region.get("segments", []):
+        fid = segment.get("formula_id")
+        if fid in mapping:
+            value = mapping[fid].get("native_text", "")
+            spans.append((fid, len(text), len(text) + len(value)))
+        else:
+            value = segment.get("text", "")
+        text += value
+    return text, spans
+
+
+# [12], [3, 7–9]: numeric citations. Two plain numbers may be an interval such
+# as [1, 2], so those need the PDF's citation-link colour as extra evidence.
+NUMERIC_CITATION = re.compile(r"\[\s*([1-9]\d*(?:\s*[,;–-]\s*[1-9]\d*)*)\s*\]")
+# [TD21], [HJS*24a; WLC*24a]: author-year keys.
+KEY_CITATION = re.compile(
+    r"\[\s*[A-Z][A-Za-z]*\*?\d{2}[a-z]?(?:\s*[,;]\s*[A-Z][A-Za-z]*\*?\d{2}[a-z]?)*\s*\]"
+)
+# Text a citation fragment may also carry outside its brackets: "Mip-NeRF 360 [",
+# "Pix2Vox++ [", "[12],".
+CITATION_SPILL = re.compile(r"[\s0-9+,.;:]*")
+
+
+def citation_formulas(regions, formulas):
+    """IDs of formula fragments that only belong to in-text citation brackets."""
+    mapping = {f["id"]: f for f in formulas}
+    found = set()
+    for region in regions:
+        if region.get("merged_into"):
+            continue
+        text, spans = paragraph_spans(region, mapping)
+        if not spans:
+            continue
+        citations = [m.span() for m in KEY_CITATION.finditer(text)]
+        for m in NUMERIC_CITATION.finditer(text):
+            numbers = re.split(r"\s*[,;–-]\s*", m[1])
+            members = [
+                mapping[fid]
+                for fid, start, end in spans
+                if start < m.end() and end > m.start()
+            ]
+            if len(numbers) != 2 or any(f.get("source_blue") for f in members):
+                citations.append(m.span())
+        for fid, start, end in spans:
+            touched = [(a, b) for a, b in citations if start < b and end > a]
+            if not touched or mapping[fid].get("kind") == "display":
+                continue
+            outside = "".join(
+                ch
+                for i, ch in enumerate(text[start:end], start)
+                if not any(a <= i < b for a, b in touched)
+            )
+            if CITATION_SPILL.fullmatch(outside):
+                found.add(fid)
+    return found
+
+
+def review_contexts(regions, formulas, radius=100):
+    """Give each formula a short window of its paragraph instead of the whole text.
+
+    The window is stored with its offsets in the paragraph so a review batch can
+    merge overlapping windows from the same paragraph and send them only once.
+    """
+    mapping = {f["id"]: f for f in formulas}
+    for region in regions:
+        if region.get("merged_into"):
+            continue
+        text, spans = paragraph_spans(region, mapping)
+        for fid, start, end in spans:
+            left = max(0, start - radius)
+            right = min(len(text), end + radius)
+            # Do not start or end the window in the middle of a word.
+            if left:
+                space = text.find(" ", left, start)
+                if space != -1 and space - left < 24:
+                    left = space + 1
+            if right < len(text):
+                space = text.rfind(" ", end, right)
+                if space != -1 and right - space < 24:
+                    right = space
+            mapping[fid].update(
+                context=text[left:right],
+                context_region=region["id"],
+                context_window=[left, right, len(text)],
+                context_span=[start, end],
+            )
+
+
 def prepare_structure(regions, geometry):
     """Associate captions and frontmatter using layout labels and source geometry."""
     assets_by_page = defaultdict(list)
@@ -385,13 +497,11 @@ def prepare_structure(regions, geometry):
             r["role"] = "frontmatter"
             r["alignment"] = "center"
             r["format"]["alignment"] = "center"
-    references = False
+    bibliography = bibliography_regions(regions)
     for r in regions:
         if r.get("merged_into"):
             continue
-        if r["type"] == "heading":
-            references = r["text"].strip().lower() in ("references", "bibliography")
-        elif references and r["type"] == "paragraph":
+        if r["id"] in bibliography:
             r["role"] = "bibliography"
         elif (
             r["type"] == "paragraph"
@@ -688,6 +798,25 @@ def convert_hybrid(args):
         regions, order_warnings = prepare_blocks(regions, plan)
         hide_unemitted(regions, formulas)
         active = [f for f in formulas if not f.get("skipped")]
+        # References and in-text citation brackets are kept as PDF text:
+        # no OCR and no model review.
+        bibliography = bibliography_regions(regions)
+        in_bibliography = {
+            segment["formula_id"]
+            for r in regions
+            if r["id"] in bibliography
+            for segment in r.get("segments", [])
+            if segment.get("formula_id")
+        }
+        citations = citation_formulas(regions, active)
+        for f in active:
+            f["local_text"] = (
+                "bibliography"
+                if f["id"] in in_bibliography
+                else "citation" if f["id"] in citations else None
+            )
+        reviewed = [f for f in active if not f["local_text"]]
+        review_contexts(regions, reviewed)
         render_overlays(pdf, regions, formulas, root)
         save(root / "regions.json", regions)
         save(root / "formulas.json", formulas)
@@ -700,12 +829,12 @@ def convert_hybrid(args):
         )
         hashes = {
             f["id"]: hashlib.sha256((root / f["crop"]).read_bytes()).hexdigest()
-            for f in active
+            for f in reviewed
         }
         valid_cache = set(old) == set(hashes) and all(
             old[k].get("crop_sha256") == v for k, v in hashes.items()
         )
-        if not active:
+        if not reviewed:
             save(ocrpath, [])
         elif not valid_cache or not ocrpath.exists():
             worker(
@@ -716,14 +845,14 @@ def convert_hybrid(args):
             )
         rows = json.loads(ocrpath.read_text())
         ocr = {r["id"]: r for r in rows}
-        if len(rows) != len(active) or set(ocr) != {f["id"] for f in active}:
+        if len(rows) != len(reviewed) or set(ocr) != {f["id"] for f in reviewed}:
             raise ValueError("OCR result IDs do not match all formula crops.")
-        for f in active:
+        for f in reviewed:
             f.update(ocr[f["id"]])
         save(root / "formulas.json", formulas)
         stage(provider + "-formula-review")
         verdicts, review = review_formulas(
-            active,
+            reviewed,
             root,
             command,
             args.formula_batch_size,
@@ -733,7 +862,7 @@ def convert_hybrid(args):
             codex_effort=args.codex_effort,
             jobs=args.formula_jobs,
         )
-        uncertain = [f for f in active if verdicts[f["id"]]["status"] == "uncertain"]
+        uncertain = [f for f in reviewed if verdicts[f["id"]]["status"] == "uncertain"]
         review["rounds"] = 1
         if uncertain and args.formula_review_rounds == 2:
             stage(provider + "-formula-context-review")
@@ -764,6 +893,19 @@ def convert_hybrid(args):
                 uncertain=sum(r["status"] == "uncertain" for r in verdicts.values()),
                 text=sum(r["status"] == "text" for r in verdicts.values()),
             )
+        for f in active:
+            if f["local_text"]:
+                verdicts[f["id"]] = {
+                    "id": f["id"],
+                    "status": "text",
+                    "latex": "",
+                    "notes": f["local_text"].capitalize()
+                    + ": kept as PDF text without OCR or review.",
+                    "local_text": f["local_text"],
+                }
+        review["local_text"] = dict(
+            Counter(f["local_text"] for f in active if f["local_text"])
+        )
         save(root / "formula-verdicts.json", list(verdicts.values()))
         stage("region-tex-and-assembly")
         apply_formulas(regions, formulas, verdicts)
