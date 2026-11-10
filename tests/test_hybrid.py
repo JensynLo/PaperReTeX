@@ -336,6 +336,120 @@ def test_review_batches_cache_and_missing_ids_fail(tmp_path, monkeypatch):
     assert len(calls) == 5
 
 
+def _parallel_fixture(tmp_path, count):
+    Image.new("RGB", (100, 30), "white").save(tmp_path / "crop.png")
+    return [
+        {"id": str(i), "page": 1, "kind": "inline", "crop": "crop.png"}
+        for i in range(count)
+    ]
+
+
+def _answer(command, kwargs):
+    prompt = kwargs["input"]
+    payload = json.loads(prompt[prompt.index("[{") :])
+    result = Path(command[command.index("--output-last-message") + 1])
+    result.write_text(
+        json.dumps({
+            "formulas": [
+                {"id": r["id"], "status": "confirmed", "latex": "x", "notes": ""}
+                for r in payload
+            ]
+        })
+    )
+    return payload
+
+
+def test_review_batches_run_concurrently_and_keep_order(tmp_path, monkeypatch):
+    import threading
+
+    formulas = _parallel_fixture(tmp_path, 8)
+    barrier = threading.Barrier(4, timeout=10)
+
+    def run(command, **kwargs):
+        barrier.wait()  # passes only if four calls are in flight together
+        _answer(command, kwargs)
+        return type("Result", (), {"returncode": 0})()
+
+    monkeypatch.setattr("paperretex.formula_review.run_review", run)
+    reviews, stats = review_formulas(formulas, tmp_path, batch_size=2, jobs=4)
+    assert stats["new_calls"] == 4 and stats["reviewed"] == 8
+    assert list(reviews) == [f["id"] for f in formulas]
+    saved = json.loads((tmp_path / "formula-verdicts.json").read_text())
+    assert [r["id"] for r in saved] == [f["id"] for f in formulas]
+    _, stats = review_formulas(formulas, tmp_path, batch_size=2, jobs=4)
+    assert stats["cached_batches"] == 4 and stats["new_calls"] == 0
+    with pytest.raises(ValueError, match="jobs"):
+        review_formulas(formulas, tmp_path, jobs=0)
+
+
+def test_parallel_failure_keeps_finished_batches_and_starts_no_more(
+    tmp_path, monkeypatch
+):
+    import threading
+
+    formulas = _parallel_fixture(tmp_path, 6)
+    started = []
+    both = threading.Barrier(2, timeout=10)
+
+    def run(command, **kwargs):
+        payload = json.loads(kwargs["input"][kwargs["input"].index("[{") :])
+        started.append(payload[0]["id"])
+        if payload[0]["id"] in "01":
+            both.wait()  # batch 1 is in flight when batch 0 fails
+        if payload[0]["id"] == "0":
+            return type("Result", (), {"returncode": 1})()
+        _answer(command, kwargs)
+        return type("Result", (), {"returncode": 0})()
+
+    monkeypatch.setattr("paperretex.formula_review.run_review", run)
+    with pytest.raises(ValueError, match="formula review failed"):
+        review_formulas(formulas, tmp_path, batch_size=1, jobs=2)
+    states = [
+        json.loads(p.read_text())
+        for p in (tmp_path / "formula-review").glob("*/call.json")
+    ]
+    by_id = {s["ids"][0]: s["status"] for s in states}
+    # The sibling in flight finished and is cached; later batches never ran.
+    assert by_id["0"] == "failed" and by_id["1"] == "completed"
+    assert sorted(started) == ["0", "1"]
+    saved = json.loads((tmp_path / "formula-verdicts.json").read_text())
+    assert [r["id"] for r in saved] == ["1"]
+    with pytest.raises(ValueError, match="Incomplete"):
+        review_formulas(formulas, tmp_path, batch_size=1, jobs=2)
+    assert len(started) == 2  # refused before any new call
+
+
+def test_interrupt_stops_every_running_review(tmp_path, monkeypatch):
+    import os
+    import sys
+    import time
+
+    if os.name != "posix":
+        pytest.skip("POSIX process group test")
+    formulas = _parallel_fixture(tmp_path, 3)
+    monkeypatch.setattr(
+        "paperretex.formula_review.command_for",
+        lambda *a, **k: [sys.executable, "-c", "import time;time.sleep(30)"],
+    )
+    real = __import__("concurrent.futures").futures.as_completed
+
+    def interrupted(futures):
+        time.sleep(0.5)  # let every child start
+        raise KeyboardInterrupt
+        yield from real(futures)
+
+    monkeypatch.setattr("paperretex.formula_review.as_completed", interrupted)
+    began = time.monotonic()
+    with pytest.raises(KeyboardInterrupt):
+        review_formulas(formulas, tmp_path, batch_size=1, jobs=3)
+    assert time.monotonic() - began < 10
+    states = [
+        json.loads(p.read_text())
+        for p in (tmp_path / "formula-review").glob("*/call.json")
+    ]
+    assert len(states) == 3 and all(s["status"] == "failed" for s in states)
+
+
 def test_failed_review_recovers_only_complete_valid_result(tmp_path, monkeypatch):
     Image.new("RGB", (20, 20), "white").save(tmp_path / "crop.png")
     formulas = [{"id": "a", "crop": "crop.png", "page": 1, "kind": "inline"}]

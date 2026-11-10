@@ -343,6 +343,12 @@ def main(argv=None):
     )
     p.add_argument("--formula-timeout", type=int, default=600)
     p.add_argument(
+        "--formula-jobs",
+        type=int,
+        default=4,
+        help="Concurrent formula review calls (1–16); 1 reviews batches one at a time.",
+    )
+    p.add_argument(
         "--formula-review-rounds",
         type=int,
         choices=[1, 2],

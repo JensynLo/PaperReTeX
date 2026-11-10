@@ -84,7 +84,8 @@ flowchart LR
    figures and tables as vector assets.
 3. **MinerU 2.7.1's UniMERNet-small** OCRs only the formula crops. Fragments inside vector
    figures or page decorations are skipped, because that text stays in the graphic.
-4. **LLM review** checks every detected expression in batches (36 per call by default).
+4. **LLM review** checks every detected expression in batches (36 per call, 4 calls in
+   parallel by default).
    A second round looks only at uncertain items, with the target boxed in red and
    nearby text as context.
 5. **LaTeX assembly** follows the original pages, columns and full-width floats.
@@ -231,6 +232,7 @@ an existing run with a different effort.
 | `--formula-batch-size`         | `36`     | Expressions per review call (1–48)                                                 |
 | `--formula-review-rounds`      | `2`      | `1` disables the context round for uncertain items                                 |
 | `--formula-timeout`            | `600`    | Seconds per review call                                                            |
+| `--formula-jobs`               | `4`      | Concurrent review calls (1–16); `1` runs batches one at a time                     |
 | `--resume`                     | off      | Continue an interrupted run in the same output directory                           |
 | `--retry-formulas`             | off      | Explicitly retry failed review batches (with `--resume`)                           |
 | `--mode`                       | `hybrid` | `semantic`, `reflow`, `layout` and `source` are legacy or comparison pipelines     |

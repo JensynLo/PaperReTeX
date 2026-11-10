@@ -731,6 +731,7 @@ def convert_hybrid(args):
             args.retry_formulas,
             provider=provider,
             codex_effort=args.codex_effort,
+            jobs=args.formula_jobs,
         )
         uncertain = [f for f in active if verdicts[f["id"]]["status"] == "uncertain"]
         review["rounds"] = 1
@@ -749,6 +750,7 @@ def convert_hybrid(args):
                 context=True,
                 provider=provider,
                 codex_effort=args.codex_effort,
+                jobs=args.formula_jobs,
             )
             for fid, row in second.items():
                 row["first_review"] = verdicts[fid]
