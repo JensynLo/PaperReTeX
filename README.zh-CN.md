@@ -30,6 +30,7 @@ PaperReTeX 读取带原生文字层的 PDF，把它重建为普通的 LaTeX 工�
 - [示例效果](#示例效果)
 - [依赖](#依赖)
 - [安装](#安装)
+- [配置](#配置)
 - [使用](#使用)
 - [网页版](#网页版)
 - [输出](#输出)
@@ -64,7 +65,7 @@ flowchart LR
 1. **预检**：最多抽取 6 页，让所选 CLI 判断版式；使用 `--layout-review local` 时只做本地几何判断。
 2. **BabelDOC 0.6.4**：提取区域、段落、字体和公式范围，并把图表保留为矢量资源。
 3. **MinerU 2.7.1 的 UniMERNet-small**：只对公式裁图做 OCR。位于矢量图或页面装饰中的片段会被跳过，因为这些文字保留在图形里。
-4. **LLM 复核**：分批检查所有检测到的表达式，默认每次调用 36 个、4 个调用并行。第二轮只处理不确定项，用红框标出目标，并附上附近正文。
+4. **LLM 复核**：分批检查检测到的表达式，默认每次调用 36 个、4 个调用并行。参考文献和正文中的引用括号（如 `[12]`、`[HJS*24a]`）在本地直接保留为原文，不做 OCR，也不发送给 LLM。每个公式只附带前后约 100 个字符的上下文，同一批中重叠的上下文只发送一次。第二轮只处理不确定项，用红框标出目标。
 5. **组装 LaTeX**：按原文的页面、栏和跨栏浮动体组织源码。
 6. **XeLaTeX 编译**后，**评测**逐页与原文比较。
 
@@ -143,6 +144,69 @@ paperretex doctor             # 检查运行环境、XeLaTeX、codex / claude
 ```
 
 首次 OCR 会从 ModelScope 下载 UniMERNet 模型。设置 `MINERU_MODEL_SOURCE=huggingface` 可改用 Hugging Face。
+
+## 配置
+
+以下设置对任何机器都适用。改完后运行 `paperretex doctor` 检查：它会列出找到的 Python 运行环境、`xelatex`、`codex`、`claude`，找不到的项显示为 `null`。
+
+### 缓存与运行环境位置
+
+所有缓存都放在 `$XDG_CACHE_HOME/paperretex/` 下；未设置 `XDG_CACHE_HOME` 时为 `~/.cache/paperretex/`。
+
+| 子目录              | 内容                                                    | 修改方式                            |
+| ------------------- | ------------------------------------------------------- | ----------------------------------- |
+| `babeldoc-runtime/` | BabelDOC 独立环境（`paperretex install-runtimes` 创建） | `--babeldoc-python <python>`        |
+| `ocr-runtime/`      | 公式 OCR 独立环境                                       | `--ocr-python <python>`             |
+| `layout/`           | 版式预检的缓存                                          | —                                   |
+| `web/`              | 网页版的上传文件、任务和结果                            | `paperretex serve --workdir <目录>` |
+
+`--babeldoc-python` 和 `--ocr-python` 接受任意已装好对应锁文件依赖的 Python 解释器路径，可以复用已有环境，不必重新安装。模型权重由 MinerU 和 BabelDOC 自己缓存，首次运行时下载。
+
+### LLM CLI
+
+1. 安装 Codex CLI 或 Claude Code（至少一个），并在终端里交互式登录一次。PaperReTeX 不保存任何账号信息，只以非交互方式调用它们：Codex 使用 `codex exec --sandbox read-only`，Claude 使用 `claude --print`，且只允许读取图片。
+2. 账号、模型、推理强度的默认值和代理都沿用该 CLI 自己的配置。`--codex-effort` 只覆盖本次运行的推理强度。
+3. 调用消耗的是该账号的额度，与你平时使用 CLI 共享。长论文会产生较多复核调用。额度不足时任务会失败，已完成的批次会保留，额度恢复后用 `--resume --retry-formulas`（网页版点**续跑**）继续即可。
+
+### `PATH`
+
+启动 `paperretex` 或网页服务的那个 shell 必须能找到 `codex`/`claude` 和 `xelatex`。通过 nvm 等 Node 版本管理器安装的 CLI，一般只在交互式 shell 中加入 `PATH`；在 tmux、SSH 远程命令、systemd 或计划任务中启动时，要先显式加入：
+
+```sh
+export PATH="<CLI 所在目录>:$PATH"
+paperretex doctor
+```
+
+### 环境变量
+
+| 变量                                      | 作用                                                                   |
+| ----------------------------------------- | ---------------------------------------------------------------------- |
+| `XDG_CACHE_HOME`                          | 修改缓存根目录                                                         |
+| `MINERU_MODEL_SOURCE`                     | OCR 模型下载源：`modelscope`（默认）或 `huggingface`                   |
+| `MINERU_DEVICE_MODE`                      | 由 MinerU 读取，强制 OCR 设备（如 `cpu`、`cuda`、`mps`）；默认自动选择 |
+| `HTTP_PROXY` / `HTTPS_PROXY` / `NO_PROXY` | 模型下载使用的代理；LLM CLI 是否遵循这些变量以各 CLI 的文档为准        |
+
+### 在另一台机器上运行
+
+OCR 和编译可以放在有 GPU 或装好 TeX 的 Linux 机器上，在本机浏览器里使用：
+
+1. 在服务器上按[安装](#安装)步骤配置，然后在 tmux 等会话管理器中启动服务，使它不依赖 SSH 连接：
+
+   ```sh
+   tmux new-session -d -s paperretex 'paperretex serve --port 8765'
+   ```
+
+2. 保持默认的 `127.0.0.1` 监听，在本机通过 SSH 端口转发访问：
+
+   ```sh
+   ssh -N -L 8765:127.0.0.1:8765 <服务器>
+   ```
+
+   然后打开 <http://localhost:8765>。
+
+3. 代码、任务和结果都在服务器上。本地修改代码后，需要通过 Git 或 `rsync` 同步到服务器（排除 `.venv/`、`output/` 等 `.gitignore` 中的内容）再运行。
+
+确实要在局域网中直接访问时，才使用 `--host 0.0.0.0`，并用 `--allow-host <主机名>` 放行对应的 Host 头。服务没有登录验证，能访问的人都会消耗你的 LLM 额度。
 
 ## 使用
 
@@ -251,7 +315,7 @@ output/paper/
 
 ## 隐私与网络访问
 
-- **LLM 调用**：转换时会把公式裁图、OCR 候选和附近正文发送给所选 CLI 的服务商；翻译时发送 TeX 文字片段。账号与模型按该 CLI 自身的配置。
+- **LLM 调用**：转换时会把公式裁图、OCR 候选和公式前后的一小段正文发送给所选 CLI 的服务商（参考文献和引用括号不发送）；翻译时发送 TeX 文字片段。账号与模型按该 CLI 自身的配置。
 - **模型下载**：首次 OCR 时下载模型（默认来自 ModelScope），BabelDOC 首次运行也可能下载资源。
 - **arXiv**：只有显式使用 `--mode source` 时才会访问。默认流程不会下载论文源码。
 
