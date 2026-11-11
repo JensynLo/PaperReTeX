@@ -36,6 +36,7 @@ original source (there is an explicit, separate `--mode source` for that).
 - [Demo results](#demo-results)
 - [Dependencies](#dependencies)
 - [Installation](#installation)
+- [Configuration](#configuration)
 - [Usage](#usage)
 - [Web app](#web-app)
 - [Output](#output)
@@ -84,10 +85,11 @@ flowchart LR
    figures and tables as vector assets.
 3. **MinerU 2.7.1's UniMERNet-small** OCRs only the formula crops. Fragments inside vector
    figures or page decorations are skipped, because that text stays in the graphic.
-4. **LLM review** checks every detected expression in batches (36 per call, 4 calls in
-   parallel by default).
-   A second round looks only at uncertain items, with the target boxed in red and
-   nearby text as context.
+4. **LLM review** checks detected expressions in batches (36 per call, 4 calls in
+   parallel by default). The bibliography and in-text citation brackets such as `[12]` or
+   `[HJS*24a]` are kept as PDF text locally, with no OCR or LLM call. Each formula carries
+   only about 100 characters of surrounding text, and overlapping context in a batch is
+   sent once. A second round looks only at uncertain items, with the target boxed in red.
 5. **LaTeX assembly** follows the original pages, columns and full-width floats.
 6. **XeLaTeX** compiles the project and **evaluation** compares it with the source page by page.
 
@@ -175,6 +177,88 @@ paperretex doctor             # check runtimes, XeLaTeX, codex / claude
 
 The first OCR run downloads the UniMERNet model from ModelScope. Set
 `MINERU_MODEL_SOURCE=huggingface` to use Hugging Face instead.
+
+## Configuration
+
+These settings apply on any machine. Run `paperretex doctor` afterwards: it lists the
+Python runtimes, `xelatex`, `codex` and `claude` it found, and shows `null` for anything
+missing.
+
+### Cache and runtime locations
+
+Everything is cached under `$XDG_CACHE_HOME/paperretex/`, or `~/.cache/paperretex/` when
+`XDG_CACHE_HOME` is unset.
+
+| Folder              | Content                                                     | Override                           |
+| ------------------- | ----------------------------------------------------------- | ---------------------------------- |
+| `babeldoc-runtime/` | BabelDOC runtime (created by `paperretex install-runtimes`) | `--babeldoc-python <python>`       |
+| `ocr-runtime/`      | Formula OCR runtime                                         | `--ocr-python <python>`            |
+| `layout/`           | Layout preflight cache                                      | —                                  |
+| `web/`              | Web app uploads, jobs and results                           | `paperretex serve --workdir <dir>` |
+
+`--babeldoc-python` and `--ocr-python` accept any Python interpreter that already has the
+packages from the matching lock file, so an existing environment can be reused. Model
+weights are cached by MinerU and BabelDOC themselves and downloaded on first use.
+
+### LLM CLI
+
+1. Install Codex CLI or Claude Code (at least one) and log in once, interactively.
+   PaperReTeX stores no credentials; it only calls the CLI non-interactively:
+   `codex exec --sandbox read-only`, or `claude --print` with image reading as the only
+   tool.
+2. Account, model, default reasoning effort and proxy come from that CLI's own
+   configuration. `--codex-effort` only overrides the effort for one run.
+3. Calls use that account's quota, shared with your own CLI use. Long papers make many
+   review calls. If the quota runs out the job fails but finished batches are kept;
+   continue later with `--resume --retry-formulas` (or **Resume** in the web app).
+
+### `PATH`
+
+The shell that starts `paperretex` or the web app must find `codex`/`claude` and
+`xelatex`. CLIs installed through a Node version manager such as nvm are usually added to
+`PATH` only in interactive shells; when starting from tmux, a remote SSH command, systemd
+or a scheduler, add them explicitly:
+
+```sh
+export PATH="<directory containing the CLI>:$PATH"
+paperretex doctor
+```
+
+### Environment variables
+
+| Variable                                  | Effect                                                                                             |
+| ----------------------------------------- | -------------------------------------------------------------------------------------------------- |
+| `XDG_CACHE_HOME`                          | Moves the cache root                                                                               |
+| `MINERU_MODEL_SOURCE`                     | OCR model source: `modelscope` (default) or `huggingface`                                          |
+| `MINERU_DEVICE_MODE`                      | Read by MinerU to force the OCR device (e.g. `cpu`, `cuda`, `mps`); chosen automatically otherwise |
+| `HTTP_PROXY` / `HTTPS_PROXY` / `NO_PROXY` | Proxy for model downloads; whether an LLM CLI honours them depends on that CLI                     |
+
+### Running on another machine
+
+OCR and compilation can run on a Linux machine with a GPU or a TeX installation while you
+use the browser locally:
+
+1. Set up the server as in [Installation](#installation), then start the app inside tmux
+   or another session manager so it does not depend on the SSH connection:
+
+   ```sh
+   tmux new-session -d -s paperretex 'paperretex serve --port 8765'
+   ```
+
+2. Keep the default `127.0.0.1` binding and forward the port over SSH from your machine:
+
+   ```sh
+   ssh -N -L 8765:127.0.0.1:8765 <server>
+   ```
+
+   Then open <http://localhost:8765>.
+
+3. Code, jobs and results live on the server. Sync local code changes there with Git or
+   `rsync` (excluding `.venv/`, `output/` and the rest of `.gitignore`) before running.
+
+Use `--host 0.0.0.0` together with `--allow-host <hostname>` only if you really need
+direct LAN access. The app has no login, so anyone who can reach it can spend your LLM
+quota.
 
 ## Usage
 
@@ -295,8 +379,9 @@ output/paper/
 
 ## Privacy and network access
 
-- **LLM calls** send formula crops, OCR candidates and nearby text (conversion) or TeX
-  text chunks (translation) to the provider of the CLI you selected. Your CLI's account
+- **LLM calls** send formula crops, OCR candidates and a short snippet of nearby text
+  (conversion; never the bibliography or citation brackets) or TeX text chunks
+  (translation) to the provider of the CLI you selected. Your CLI's account
   and model settings apply.
 - **Model downloads** happen on the first OCR run (ModelScope by default) and may also
   happen on BabelDOC's first run.
